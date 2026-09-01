@@ -5,10 +5,15 @@ argocd_main_application_name: "neuroplan-login-mvp"
 argocd_namespace: "argocd"
 
 argocd_dr_repo_url: "https://github.com/Infrastructure-hybrid09/onprem-k8s-application-devopsVM.git"
-argocd_dr_target_revision: "feat/k3s-dr-overlay"
+argocd_dr_target_revision: "main"
 argocd_dr_path: "neuroplan-login-mvp/k8s/dr"
 
 argocd_dr_destination_server: "https://192.168.34.71:6443"
 argocd_dr_destination_namespace: "application"
 
 argocd_dr_cluster_secret_name: "cluster-dr-k3s"
+
+# DR Application GitOps synchronization
+argocd_dr_auto_sync_enabled: true
+argocd_dr_auto_sync_prune: true
+argocd_dr_auto_sync_self_heal: true

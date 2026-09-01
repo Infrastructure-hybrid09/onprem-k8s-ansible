@@ -15,3 +15,10 @@ spec:
   destination:
     server: {{ argocd_dr_destination_server }}
     namespace: {{ argocd_dr_destination_namespace }}
+
+{% if argocd_dr_auto_sync_enabled | bool %}
+  syncPolicy:
+    automated:
+      prune: {{ argocd_dr_auto_sync_prune | bool | lower }}
+      selfHeal: {{ argocd_dr_auto_sync_self_heal | bool | lower }}
+{% endif %}
