@@ -1,0 +1,35 @@
+---
+# =========================================================
+# InfraReady CI/CD Full Deployment
+# =========================================================
+
+# 1. Harbor Registry Server
+- import_playbook: harbor.yml
+
+# 2. Harbor Project / Robot Accounts / Administrator
+- import_playbook: harbor-bootstrap.yml
+
+# 3. DevOps CI/CD Server
+# Java / Maven / Node.js / Docker / Jenkins / Helm / Argo CD
+- import_playbook: devops.yml
+
+# 4. Harbor Registry Runtime Configuration
+# Main Kubernetes Workers + DR k3s
+- import_playbook: harbor-registry.yml
+
+# 5. Harbor Image Pull Secrets
+# Main Kubernetes + DR k3s
+- import_playbook: harbor-pull-secret.yml
+
+# 6. DR Application Secrets
+# Main Kubernetes Gemini Secret -> DR k3s
+- import_playbook: dr-application-secrets.yml
+
+# 7. Prepare DR k3s access for Argo CD
+- import_playbook: k3s-argocd-access.yml
+
+# 8. Register DR k3s cluster in Main Argo CD
+- import_playbook: argocd-dr.yml
+
+# 9. Configure DR Argo CD Application
+- import_playbook: argocd-dr-application.yml

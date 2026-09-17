@@ -1,10 +1,6 @@
 ---
+# Central NTP server managed outside this Ansible role
 ntp_server_ip: "192.168.14.62"
-ntp_client_network: "192.168.14.0/24"
-ntp_upstream: "3.kr.pool.ntp.org"
 
-# 기본값은 client
-ntp_mode: "client"
-
-# Kubernetes / DB 운영 전 초기 구축 때만 true 고려
+# Initial synchronization option
 ntp_allow_initial_step: false

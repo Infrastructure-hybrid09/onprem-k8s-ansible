@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ k3s_monitoring_sa_name }}
+  namespace: {{ k3s_monitoring_namespace }}
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ k3s_monitoring_token_secret }}
+  namespace: {{ k3s_monitoring_namespace }}
+  annotations:
+    kubernetes.io/service-account.name: {{ k3s_monitoring_sa_name }}
+type: kubernetes.io/service-account-token
+
+---
+# K3s supervisor /metrics 조회 전용
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dr-monitoring-supervisor-metrics
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dr-monitoring-supervisor-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dr-monitoring-supervisor-metrics
+subjects:
+  - kind: ServiceAccount
+    name: {{ k3s_monitoring_sa_name }}
+    namespace: {{ k3s_monitoring_namespace }}
+
+---
+# kube-state-metrics Service proxy 조회 전용
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dr-monitoring-service-proxy
+  namespace: {{ k3s_monitoring_namespace }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services/proxy
+    verbs:
+      - get
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dr-monitoring-service-proxy
+  namespace: {{ k3s_monitoring_namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dr-monitoring-service-proxy
+subjects:
+  - kind: ServiceAccount
+    name: {{ k3s_monitoring_sa_name }}
+    namespace: {{ k3s_monitoring_namespace }}
+
+---
+# Backend Actuator Service proxy 조회 전용
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: dr-monitoring-application-proxy
+  namespace: application
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - services/proxy
+    verbs:
+      - get
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dr-monitoring-application-proxy
+  namespace: application
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: dr-monitoring-application-proxy
+subjects:
+  - kind: ServiceAccount
+    name: {{ k3s_monitoring_sa_name }}
+    namespace: {{ k3s_monitoring_namespace }}

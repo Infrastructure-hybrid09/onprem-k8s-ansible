@@ -1,0 +1,8 @@
+---
+- name: Configure Harbor Registry Server
+  hosts: minio_nodes
+  become: true
+
+  roles:
+    - docker
+    - harbor

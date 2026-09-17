@@ -14,5 +14,4 @@ docker_users:
 # Private Container Registry
 # =========================================================
 
-docker_insecure_registries:
-  - "192.168.34.21:5000"
+docker_insecure_registries: []

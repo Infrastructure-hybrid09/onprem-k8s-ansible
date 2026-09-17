@@ -1,0 +1,18 @@
+---
+k3s_kubectl_path: "/usr/local/bin/kubectl"
+k3s_kubeconfig_path: "/etc/rancher/k3s/k3s.yaml"
+
+k3s_monitoring_namespace: "monitoring"
+
+k3s_node_exporter_name: "node-exporter"
+k3s_node_exporter_port: 9100
+
+# kube-state-metrics
+k3s_ksm_name: "monitoring-kube-state-metrics"
+k3s_ksm_image: "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1"
+k3s_ksm_port: 8080
+k3s_ksm_telemetry_port: 8081
+
+# External Prometheus monitoring access
+k3s_monitoring_sa_name: "dr-monitoring-reader"
+k3s_monitoring_token_secret: "dr-monitoring-reader-token"

@@ -1,0 +1,5 @@
+---
+- name: Restart Harbor
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ harbor_install_dir }}"

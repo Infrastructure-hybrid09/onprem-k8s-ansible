@@ -1,0 +1,145 @@
+---
+- name: Deploy DR Node Exporter manifest
+  ansible.builtin.template:
+    src: node-exporter-daemonset.yaml.j2
+    dest: /tmp/node-exporter-daemonset.yaml
+    mode: "0644"
+
+- name: Apply DR Node Exporter DaemonSet
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_kubectl_path }}"
+      - "--kubeconfig={{ k3s_kubeconfig_path }}"
+      - apply
+      - -f
+      - /tmp/node-exporter-daemonset.yaml
+  register: k3s_node_exporter_apply
+  changed_when: >
+    'created' in k3s_node_exporter_apply.stdout or
+    'configured' in k3s_node_exporter_apply.stdout
+
+- name: Wait for DR Node Exporter
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_kubectl_path }}"
+      - "--kubeconfig={{ k3s_kubeconfig_path }}"
+      - rollout
+      - status
+      - "daemonset/{{ k3s_node_exporter_name }}"
+      - -n
+      - "{{ k3s_monitoring_namespace }}"
+      - "--timeout=300s"
+  changed_when: false
+
+- name: Get DR Node Exporter status
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_kubectl_path }}"
+      - "--kubeconfig={{ k3s_kubeconfig_path }}"
+      - get
+      - daemonset
+      - "{{ k3s_node_exporter_name }}"
+      - -n
+      - "{{ k3s_monitoring_namespace }}"
+  register: k3s_node_exporter_status
+  changed_when: false
+
+- name: Verify DR Node Exporter metrics
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ k3s_node_exporter_port }}/metrics"
+    method: GET
+    status_code: 200
+    return_content: false
+
+- name: Display DR Node Exporter status
+  ansible.builtin.debug:
+    var: k3s_node_exporter_status.stdout_lines
+
+# ============================================================
+# kube-state-metrics
+# ============================================================
+
+- name: Deploy DR kube-state-metrics manifest
+  ansible.builtin.template:
+    src: kube-state-metrics.yaml.j2
+    dest: /tmp/kube-state-metrics.yaml
+    mode: "0644"
+
+- name: Apply DR kube-state-metrics
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_kubectl_path }}"
+      - "--kubeconfig={{ k3s_kubeconfig_path }}"
+      - apply
+      - -f
+      - /tmp/kube-state-metrics.yaml
+  register: k3s_ksm_apply
+  changed_when: >
+    'created' in k3s_ksm_apply.stdout or
+    'configured' in k3s_ksm_apply.stdout
+
+- name: Wait for DR kube-state-metrics
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_kubectl_path }}"
+      - "--kubeconfig={{ k3s_kubeconfig_path }}"
+      - rollout
+      - status
+      - "deployment/{{ k3s_ksm_name }}"
+      - -n
+      - "{{ k3s_monitoring_namespace }}"
+      - "--timeout=300s"
+  changed_when: false
+
+- name: Get DR kube-state-metrics Service IP
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_kubectl_path }}"
+      - "--kubeconfig={{ k3s_kubeconfig_path }}"
+      - get
+      - service
+      - "{{ k3s_ksm_name }}"
+      - -n
+      - "{{ k3s_monitoring_namespace }}"
+      - -o
+      - "jsonpath={.spec.clusterIP}"
+  register: k3s_ksm_service_ip
+  changed_when: false
+
+- name: Verify DR kube-state-metrics
+  ansible.builtin.uri:
+    url: "http://{{ k3s_ksm_service_ip.stdout }}:{{ k3s_ksm_port }}/metrics"
+    method: GET
+    status_code: 200
+    return_content: false
+
+- name: Display DR kube-state-metrics target
+  ansible.builtin.debug:
+    msg:
+      - "Service={{ k3s_ksm_name }}"
+      - "ClusterIP={{ k3s_ksm_service_ip.stdout }}"
+      - "Port={{ k3s_ksm_port }}"
+      - "Path=/metrics"
+
+# ============================================================
+# External Prometheus Monitoring Access
+# ============================================================
+
+- name: Deploy DR monitoring ServiceAccount and RBAC manifest
+  ansible.builtin.template:
+    src: monitoring-access.yaml.j2
+    dest: /tmp/monitoring-access.yaml
+    mode: "0600"
+
+- name: Apply DR monitoring ServiceAccount and RBAC
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_kubectl_path }}"
+      - "--kubeconfig={{ k3s_kubeconfig_path }}"
+      - apply
+      - -f
+      - /tmp/monitoring-access.yaml
+  register: k3s_monitoring_access_apply
+  changed_when: >
+    'created' in k3s_monitoring_access_apply.stdout or
+    'configured' in k3s_monitoring_access_apply.stdout

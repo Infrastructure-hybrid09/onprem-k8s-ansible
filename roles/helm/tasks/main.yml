@@ -12,11 +12,17 @@
     state: directory
     mode: "0755"
 
+- name: Check requested Helm version installation
+  ansible.builtin.stat:
+    path: "{{ helm_install_dir }}/{{ helm_os }}-{{ helm_arch }}/helm"
+  register: helm_installed_binary
+
 - name: Download Helm archive
   ansible.builtin.get_url:
     url: "{{ helm_download_url }}"
     dest: "/tmp/{{ helm_archive }}"
     mode: "0644"
+  when: not helm_installed_binary.stat.exists
 
 - name: Extract Helm archive
   ansible.builtin.unarchive:

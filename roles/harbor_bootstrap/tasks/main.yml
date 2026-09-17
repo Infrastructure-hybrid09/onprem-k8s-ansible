@@ -1,0 +1,613 @@
+---
+# =========================================================
+# Harbor Admin / API validation
+# =========================================================
+
+- name: Validate Harbor bootstrap variables
+  ansible.builtin.assert:
+    that:
+      - harbor_admin_username | length > 0
+      - vault_harbor_admin_password is defined
+      - vault_harbor_admin_password | length > 0
+      - harbor_project_name | length > 0
+    fail_msg: "Required Harbor bootstrap variables are missing."
+  no_log: true
+
+
+# =========================================================
+# Harbor Project
+# =========================================================
+
+- name: Check Harbor project
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/projects?project_name={{ harbor_project_name }}"
+    method: HEAD
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code:
+      - 200
+      - 404
+  register: harbor_project_check
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+
+- name: Show Harbor project creation plan
+  ansible.builtin.debug:
+    msg: "Harbor project '{{ harbor_project_name }}' would be created."
+  when:
+    - ansible_check_mode
+    - harbor_project_check.status == 404
+  changed_when: true
+
+
+- name: Create Harbor project
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/projects"
+    method: POST
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      project_name: "{{ harbor_project_name }}"
+      metadata:
+        public: "{{ (harbor_project_public | bool) | ternary('true', 'false') }}"
+      storage_limit: "{{ harbor_project_storage_limit }}"
+    status_code:
+      - 201
+  when:
+    - not ansible_check_mode
+    - harbor_project_check.status == 404
+  no_log: true
+
+
+- name: Verify Harbor project
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/projects?project_name={{ harbor_project_name }}"
+    method: HEAD
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code:
+      - 200
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when:
+    - harbor_project_check.status == 200 or not ansible_check_mode
+
+# =========================================================
+# Harbor Project information
+# =========================================================
+
+- name: Get Harbor project information
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/projects/{{ harbor_project_name }}"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_project_info
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+
+- name: Set Harbor project ID
+  ansible.builtin.set_fact:
+    harbor_project_id: "{{ harbor_project_info.json.project_id }}"
+  changed_when: false
+
+
+# =========================================================
+# Harbor Robot Accounts - discovery
+# =========================================================
+
+- name: Get Harbor project robot accounts
+  ansible.builtin.uri:
+    url: >-
+      {{ harbor_api_url }}/robots?q=Level%3Dsystem&page_size=100
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_robot_list
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+
+- name: Find Jenkins Harbor robot
+  ansible.builtin.set_fact:
+    harbor_jenkins_robot: >-
+      {{
+        (
+          harbor_robot_list.json
+          | selectattr('name', 'equalto', 'robot$' ~ harbor_jenkins_robot_name)
+          | list
+          | first
+        ) | default({})
+      }}
+  changed_when: false
+
+
+- name: Find Kubernetes Harbor robot
+  ansible.builtin.set_fact:
+    harbor_k8s_robot: >-
+      {{
+        (
+          harbor_robot_list.json
+          | selectattr('name', 'equalto', 'robot$' ~ harbor_k8s_robot_name)
+          | list
+          | first
+        ) | default({})
+      }}
+  changed_when: false
+
+
+- name: Show Harbor robot discovery result
+  ansible.builtin.debug:
+    msg:
+      - "Jenkins robot exists: {{ harbor_jenkins_robot | length > 0 }}"
+      - "Kubernetes robot exists: {{ harbor_k8s_robot | length > 0 }}"
+  changed_when: false
+
+# =========================================================
+# Harbor Robot Accounts - detail
+# =========================================================
+
+- name: Get Jenkins Harbor robot detail
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots/{{ harbor_jenkins_robot.id }}"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_jenkins_robot_detail
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: harbor_jenkins_robot | length > 0
+
+
+- name: Get Kubernetes Harbor robot detail
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots/{{ harbor_k8s_robot.id }}"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_k8s_robot_detail
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: harbor_k8s_robot | length > 0
+
+
+- name: Show Jenkins Harbor robot permissions
+  ansible.builtin.debug:
+    msg:
+      name: "{{ harbor_jenkins_robot_detail.json.name }}"
+      level: "{{ harbor_jenkins_robot_detail.json.level }}"
+      disable: "{{ harbor_jenkins_robot_detail.json.disable }}"
+      duration: "{{ harbor_jenkins_robot_detail.json.duration }}"
+      permissions: "{{ harbor_jenkins_robot_detail.json.permissions }}"
+  when: harbor_jenkins_robot | length > 0
+  changed_when: false
+
+
+- name: Show Kubernetes Harbor robot permissions
+  ansible.builtin.debug:
+    msg:
+      name: "{{ harbor_k8s_robot_name }}"
+      level: "{{ harbor_k8s_robot_detail.json.level }}"
+      disable: "{{ harbor_k8s_robot_detail.json.disable }}"
+      duration: "{{ harbor_k8s_robot_detail.json.duration }}"
+      permissions: "{{ harbor_k8s_robot_detail.json.permissions }}"
+  when: harbor_k8s_robot | length > 0
+  changed_when: false
+
+# =========================================================
+# Kubernetes Administrator - Harbor User
+# =========================================================
+
+- name: Search Harbor k8s administrator user
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/users/search?username={{ harbor_k8s_admin_username }}"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_k8s_admin_user_search
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+
+- name: Find exact Harbor k8s administrator user
+  ansible.builtin.set_fact:
+    harbor_k8s_admin_user: >-
+      {{
+        (
+          harbor_k8s_admin_user_search.json
+          | selectattr('username', 'equalto', harbor_k8s_admin_username)
+          | list
+          | first
+        ) | default({})
+      }}
+  changed_when: false
+
+
+- name: Show Harbor k8s administrator creation plan
+  ansible.builtin.debug:
+    msg: "Harbor user '{{ harbor_k8s_admin_username }}' would be created."
+  when:
+    - ansible_check_mode
+    - harbor_k8s_admin_user | length == 0
+  changed_when: true
+
+
+- name: Create Harbor k8s administrator user
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/users"
+    method: POST
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      username: "{{ harbor_k8s_admin_username }}"
+      password: "{{ vault_harbor_k8s_admin_password }}"
+      email: "{{ harbor_k8s_admin_email }}"
+      realname: "{{ harbor_k8s_admin_realname }}"
+    status_code: 201
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_admin_user | length == 0
+  no_log: true
+
+
+# 생성 직후 user_id 확보
+- name: Refresh Harbor k8s administrator user
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/users/search?username={{ harbor_k8s_admin_username }}"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_k8s_admin_user_refresh
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when:
+    - not ansible_check_mode or harbor_k8s_admin_user | length > 0
+
+
+# =========================================================
+# neuroplan Project Admin Membership
+# =========================================================
+
+- name: Get neuroplan project members for k8s administrator
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/projects/{{ harbor_project_name }}/members?entityname={{ harbor_k8s_admin_username }}&page_size=100"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_k8s_admin_members
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+
+- name: Find k8s administrator project membership
+  ansible.builtin.set_fact:
+    harbor_k8s_admin_member: >-
+      {{
+        (
+          harbor_k8s_admin_members.json
+          | selectattr('entity_name', 'equalto', harbor_k8s_admin_username)
+          | list
+          | first
+        ) | default({})
+      }}
+  changed_when: false
+
+
+- name: Show k8s administrator project membership plan
+  ansible.builtin.debug:
+    msg: >-
+      Harbor user '{{ harbor_k8s_admin_username }}'
+      would be configured as Project Admin of
+      '{{ harbor_project_name }}'.
+  when:
+    - ansible_check_mode
+    - harbor_k8s_admin_member | length == 0
+      or (harbor_k8s_admin_member.role_id | default(0) | int) != (harbor_k8s_admin_role_id | int)
+  changed_when: true
+
+
+- name: Add k8s administrator to neuroplan project
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/projects/{{ harbor_project_name }}/members"
+    method: POST
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      role_id: "{{ harbor_k8s_admin_role_id }}"
+      member_user:
+        username: "{{ harbor_k8s_admin_username }}"
+    status_code: 201
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_admin_member | length == 0
+  no_log: true
+
+
+- name: Update k8s administrator to Project Admin
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/projects/{{ harbor_project_name }}/members/{{ harbor_k8s_admin_member.id }}"
+    method: PUT
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      role_id: "{{ harbor_k8s_admin_role_id }}"
+    status_code: 200
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_admin_member | length > 0
+    - (harbor_k8s_admin_member.role_id | int) != (harbor_k8s_admin_role_id | int)
+  no_log: true
+
+# =========================================================
+# Kubernetes Robot - enforce Pull only
+# =========================================================
+
+- name: Determine whether Kubernetes Harbor robot permissions need update
+  ansible.builtin.set_fact:
+    harbor_k8s_robot_needs_update: >-
+      {{
+        harbor_k8s_robot_detail.json.permissions
+        != harbor_k8s_robot_permissions
+      }}
+  when:
+    - harbor_k8s_robot | length > 0
+  changed_when: false
+
+- name: Show Kubernetes Harbor robot permission state
+  ansible.builtin.debug:
+    msg: >-
+      Kubernetes Harbor robot permissions
+      {{ 'NEED UPDATE' if harbor_k8s_robot_needs_update | default(false) else 'are correct' }}
+  when:
+    - harbor_k8s_robot | length > 0
+
+- name: Update Kubernetes Harbor robot to pull-only
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots/{{ harbor_k8s_robot.id }}"
+    method: PUT
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "{{ harbor_k8s_robot_detail.json.name }}"
+      description: "{{ harbor_k8s_robot_detail.json.description | default('', true) }}"
+      level: "{{ harbor_k8s_robot_detail.json.level }}"
+      disable: false
+      duration: -1
+      permissions: "{{ harbor_k8s_robot_permissions }}"
+    status_code: 200
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_robot | length > 0
+    - harbor_k8s_robot_needs_update | bool
+  changed_when: true
+  no_log: true
+
+# =========================================================
+# Jenkins Robot - create when missing
+# =========================================================
+
+- name: Create Jenkins Harbor robot when missing
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots"
+    method: POST
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "{{ harbor_jenkins_robot_name }}"
+      description: "Jenkins CI Harbor robot"
+      level: "system"
+      disable: false
+      duration: -1
+      permissions: "{{ harbor_jenkins_robot_permissions }}"
+    status_code: 201
+    return_content: true
+  register: harbor_jenkins_robot_create
+  when:
+    - not ansible_check_mode
+    - harbor_jenkins_robot | length == 0
+  changed_when: true
+  no_log: true
+
+- name: Refresh Harbor robot list after Jenkins robot creation
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots?q=Level%3Dsystem&page_size=100"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_robot_list_after_jenkins
+  when:
+    - not ansible_check_mode
+    - harbor_jenkins_robot | length == 0
+  changed_when: false
+  no_log: true
+
+- name: Find newly created Jenkins Harbor robot
+  ansible.builtin.set_fact:
+    harbor_new_jenkins_robot: >-
+      {{
+        (
+          harbor_robot_list_after_jenkins.json
+          | selectattr('name', 'equalto', 'robot$' ~ harbor_jenkins_robot_name)
+          | list
+          | first
+        ) | default({})
+      }}
+  when:
+    - not ansible_check_mode
+    - harbor_jenkins_robot | length == 0
+  changed_when: false
+
+- name: Set Jenkins Harbor robot secret from Vault
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots/{{ harbor_new_jenkins_robot.id }}"
+    method: PATCH
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      secret: "{{ vault_harbor_jenkins_secret }}"
+    status_code: 200
+  when:
+    - not ansible_check_mode
+    - harbor_jenkins_robot | length == 0
+    - harbor_new_jenkins_robot | length > 0
+  changed_when: true
+  no_log: true
+
+- name: Show Jenkins Harbor robot creation plan
+  ansible.builtin.debug:
+    msg: "Jenkins Harbor robot would be created and its secret aligned with Vault."
+  when:
+    - ansible_check_mode
+    - harbor_jenkins_robot | length == 0
+  changed_when: true
+
+
+# =========================================================
+# Kubernetes Robot - create when missing
+# =========================================================
+
+- name: Create Kubernetes Harbor robot when missing
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots"
+    method: POST
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      name: "{{ harbor_k8s_robot_name }}"
+      description: "Kubernetes image pull only"
+      level: "system"
+      disable: false
+      duration: -1
+      permissions: "{{ harbor_k8s_robot_permissions }}"
+    status_code: 201
+    return_content: true
+  register: harbor_k8s_robot_create
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_robot | length == 0
+  changed_when: true
+  no_log: true
+
+- name: Refresh Harbor robot list after Kubernetes robot creation
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots?q=Level%3Dsystem&page_size=100"
+    method: GET
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    status_code: 200
+    return_content: true
+  register: harbor_robot_list_after_k8s
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_robot | length == 0
+  changed_when: false
+  no_log: true
+
+- name: Find newly created Kubernetes Harbor robot
+  ansible.builtin.set_fact:
+    harbor_new_k8s_robot: >-
+      {{
+        (
+          harbor_robot_list_after_k8s.json
+          | selectattr('name', 'equalto', 'robot$' ~ harbor_k8s_robot_name)
+          | list
+          | first
+        ) | default({})
+      }}
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_robot | length == 0
+  changed_when: false
+
+- name: Verify newly created Kubernetes Harbor robot
+  ansible.builtin.assert:
+    that:
+      - harbor_new_k8s_robot | length > 0
+      - harbor_new_k8s_robot.id is defined
+    fail_msg: "Kubernetes Harbor robot was created but could not be discovered."
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_robot | length == 0
+
+- name: Set Kubernetes Harbor robot secret from Vault
+  ansible.builtin.uri:
+    url: "{{ harbor_api_url }}/robots/{{ harbor_new_k8s_robot.id }}"
+    method: PATCH
+    url_username: "{{ harbor_admin_username }}"
+    url_password: "{{ vault_harbor_admin_password }}"
+    force_basic_auth: true
+    body_format: json
+    body:
+      secret: "{{ vault_harbor_pull_secret }}"
+    status_code: 200
+  when:
+    - not ansible_check_mode
+    - harbor_k8s_robot | length == 0
+    - harbor_new_k8s_robot | length > 0
+  changed_when: true
+  no_log: true
+
+- name: Show Kubernetes Harbor robot creation plan
+  ansible.builtin.debug:
+    msg: "Kubernetes Harbor pull robot would be created and its secret aligned with Vault."
+  when:
+    - ansible_check_mode
+    - harbor_k8s_robot | length == 0
+  changed_when: true

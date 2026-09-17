@@ -1,0 +1,6 @@
+---
+infra_check_dns_zone: "nplan.local"
+infra_check_dns_server: "127.0.0.1"
+
+infra_check_bind_service: "named"
+infra_check_chrony_service: "chronyd"

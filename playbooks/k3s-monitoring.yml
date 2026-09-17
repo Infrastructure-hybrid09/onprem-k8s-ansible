@@ -1,0 +1,8 @@
+---
+- name: Configure monitoring components on DR K3s
+  hosts: k3s_nodes
+  become: true
+  gather_facts: false
+
+  roles:
+    - k3s_monitoring

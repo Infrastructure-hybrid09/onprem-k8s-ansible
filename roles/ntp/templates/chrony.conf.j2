@@ -1,16 +1,9 @@
-# Managed by Ansible - InfraReady Central NTP
+# Managed by Ansible - InfraReady NTP Client
 
-{% if ntp_mode == 'server' %}
-server {{ ntp_upstream }} iburst
-
-allow {{ ntp_client_network }}
-bindaddress {{ ntp_server_ip }}
-{% else %}
 server {{ ntp_server_ip }} iburst prefer
 
 # Client-only mode
 port 0
-{% endif %}
 
 driftfile /var/lib/chrony/drift
 

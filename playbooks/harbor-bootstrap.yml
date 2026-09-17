@@ -1,0 +1,7 @@
+---
+- name: Configure Harbor projects and robot accounts
+  hosts: minio_nodes
+  become: false
+
+  roles:
+    - harbor_bootstrap

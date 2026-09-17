@@ -45,7 +45,6 @@ application_kustomize_path: "neuroplan-login-mvp/k8s/onprem"
 # =========================================================
 # Internal Container Registry
 # =========================================================
-container_registry: "192.168.34.21:5000"
 
 frontend_image_repository: "neuroplan/frontend"
 backend_image_repository: "neuroplan/backend"
@@ -53,8 +52,6 @@ backend_image_repository: "neuroplan/backend"
 # =========================================================
 # Docker Hub
 # =========================================================
-dockerhub_username: "yerinnn"
-dockerhub_repository: "neuroplan-ci-test"
 
 
 # =========================================================
@@ -83,7 +80,6 @@ jenkins_api_token: "{{ vault_jenkins_api_token }}"
 # =========================================================
 # Jenkins Credentials ID
 # =========================================================
-jenkins_dockerhub_credential_id: "dockerhub-credentials"
 jenkins_gitops_credential_id: "gitops-ssh-credentials"
 jenkins_app_repo_credential_id: "app-repo-write-credentials"
 
@@ -99,3 +95,9 @@ jenkins_poll_scm: "H/2 * * * *"
 # Argo CD
 # =========================================================
 argocd_automated_sync: true
+
+# =========================================================
+# Harbor Jenkins Credential
+# =========================================================
+jenkins_harbor_credential_id: "harbor-registry"
+harbor_jenkins_username: 'robot$jenkins'

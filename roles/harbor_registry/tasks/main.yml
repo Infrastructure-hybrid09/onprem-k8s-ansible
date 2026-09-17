@@ -1,0 +1,40 @@
+---
+# Main Kubernetes workers
+- name: Create containerd registry directory for Harbor
+  ansible.builtin.file:
+    path: "/etc/containerd/certs.d/{{ harbor_registry }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: inventory_hostname in groups['workers']
+
+- name: Configure Harbor HTTP registry for containerd
+  ansible.builtin.template:
+    src: containerd-hosts.toml.j2
+    dest: "/etc/containerd/certs.d/{{ harbor_registry }}/hosts.toml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: inventory_hostname in groups['workers']
+
+# DR k3s
+- name: Create k3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: inventory_hostname in groups['k3s_nodes']
+
+- name: Configure Harbor registry for k3s
+  ansible.builtin.template:
+    src: k3s-registries.yaml.j2
+    dest: /etc/rancher/k3s/registries.yaml
+    owner: root
+    group: root
+    mode: "0600"
+    backup: true
+  when: inventory_hostname in groups['k3s_nodes']
+  notify: Restart k3s

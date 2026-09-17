@@ -1,0 +1,3 @@
+---
+harbor_registry: "harbor.nplan.local:80"
+harbor_registry_url: "http://harbor.nplan.local:80"

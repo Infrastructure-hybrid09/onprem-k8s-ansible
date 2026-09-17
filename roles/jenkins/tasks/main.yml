@@ -143,30 +143,36 @@
 # =========================================================
 
 - name: Validate Jenkins credential variables
+  tags:
+    - jenkins_credentials
   ansible.builtin.assert:
     that:
-      - (jenkins_dockerhub_credential_id | default('') | length) > 0
-      - (dockerhub_username | default('') | length) > 0
-      - (vault_dockerhub_token | default('') | length) > 0
 
       - (jenkins_app_repo_credential_id | default('') | length) > 0
       - (vault_app_repo_private_key | default('') | trim | length) > 0
+
+      - (jenkins_harbor_credential_id | default('') | length) > 0
+      - (harbor_jenkins_username | default('') | length) > 0
+      - (vault_harbor_jenkins_secret | default('') | length) > 0
     fail_msg: "Required Jenkins credential variables are missing."
   no_log: true
   become: false
 
 
 - name: Configure Jenkins credentials
+  tags:
+    - jenkins_credentials
   community.general.jenkins_script:
     script: "{{ lookup('ansible.builtin.file', role_path + '/files/manage_credentials.groovy') }}"
 
     args:
-      docker_credential_id: "{{ jenkins_dockerhub_credential_id }}"
-      docker_username: "{{ dockerhub_username }}"
-      docker_token: "{{ vault_dockerhub_token }}"
 
       app_repo_credential_id: "{{ jenkins_app_repo_credential_id }}"
       app_repo_private_key: "{{ vault_app_repo_private_key }}"
+
+      harbor_credential_id: "{{ jenkins_harbor_credential_id }}"
+      harbor_username: "{{ harbor_jenkins_username }}"
+      harbor_secret: "{{ vault_harbor_jenkins_secret }}"
 
     url: "{{ jenkins_api_url }}"
     user: "{{ jenkins_admin_user }}"

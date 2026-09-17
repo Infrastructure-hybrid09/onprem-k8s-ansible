@@ -1,8 +1,0 @@
----
-- name: Deploy Node Exporter DaemonSet to Kubernetes
-  hosts: devops_nodes
-  become: false
-  gather_facts: false
-
-  roles:
-    - node_exporter_k8s

@@ -1,14 +1,63 @@
 ---
+# ============================================================
+# Load Balancer Health Check
+# - HAProxy / Keepalived service
+# - HAProxy configuration
+# - Kubernetes API VIP
+# - NeuroPlan Service VIP
+# - Main Kubernetes backend connectivity
+# - DR k3s backend connectivity
+# ============================================================
+
 - name: Check Load Balancer Health
   hosts: loadbalancers
   become: true
   gather_facts: false
 
   vars:
+    # Kubernetes API VIP
     k8s_api_vip: "192.168.34.100"
     k8s_api_port: 6443
 
+    # NeuroPlan Service VIP
+    service_vip: "192.168.24.100"
+    service_port: 443
+
+    # Kubernetes Control Plane backends
+    api_backends:
+      - name: cp1
+        ip: "192.168.34.31"
+        port: 6443
+      - name: cp2
+        ip: "192.168.34.32"
+        port: 6443
+      - name: cp3
+        ip: "192.168.34.33"
+        port: 6443
+
+    # Main Kubernetes NGF backends
+    main_backends:
+      - name: worker1
+        ip: "192.168.34.41"
+        port: 30443
+      - name: worker2
+        ip: "192.168.34.42"
+        port: 30443
+      - name: worker3
+        ip: "192.168.34.43"
+        port: 30443
+
+    # DR k3s backup backend
+    dr_backend:
+      name: "dr-k3s"
+      ip: "192.168.34.71"
+      port: 30443
+
   tasks:
+    # --------------------------------------------------------
+    # HAProxy / Keepalived
+    # --------------------------------------------------------
+
     - name: Check HAProxy service
       ansible.builtin.command:
         cmd: systemctl is-active haproxy
@@ -30,29 +79,112 @@
       changed_when: false
       failed_when: false
 
-    - name: Check Kubernetes API VIP
+    # --------------------------------------------------------
+    # Verify DR backend configuration
+    # --------------------------------------------------------
+
+    - name: Verify DR k3s is configured as HAProxy backup backend
       ansible.builtin.shell:
-        cmd: ip -4 -o addr show | grep -w "{{ k8s_api_vip }}"
-      register: vip_status
+        cmd: >
+          grep -Eq
+          '^[[:space:]]*server[[:space:]]+dr-k3s[[:space:]]+192\.168\.34\.71:30443[[:space:]]+check[[:space:]]+backup'
+          /etc/haproxy/haproxy.cfg
+      register: dr_backup_config
       changed_when: false
       failed_when: false
 
-    - name: Check Kubernetes API port
+    # --------------------------------------------------------
+    # VIP ownership
+    # --------------------------------------------------------
+
+    - name: Check Kubernetes API VIP ownership
+      ansible.builtin.shell:
+        cmd: ip -4 -o addr show | grep -w "{{ k8s_api_vip }}"
+      register: api_vip_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check Service VIP ownership
+      ansible.builtin.shell:
+        cmd: ip -4 -o addr show | grep -w "{{ service_vip }}"
+      register: service_vip_status
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # HAProxy frontend listener
+    # --------------------------------------------------------
+
+    - name: Check Kubernetes API listener
       ansible.builtin.shell:
         cmd: ss -lnt | grep ":{{ k8s_api_port }} "
       register: api_port_status
       changed_when: false
       failed_when: false
 
+    - name: Check Service HTTPS listener
+      ansible.builtin.shell:
+        cmd: ss -lnt | grep ":{{ service_port }} "
+      register: service_port_status
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # Backend connectivity
+    # --------------------------------------------------------
+
+    - name: Check Kubernetes Control Plane backends
+      ansible.builtin.shell:
+        cmd: >
+          timeout 3 bash -c
+          'echo > /dev/tcp/{{ item.ip }}/{{ item.port }}'
+      loop: "{{ api_backends }}"
+      loop_control:
+        label: "{{ item.name }} {{ item.ip }}:{{ item.port }}"
+      register: api_backend_checks
+      changed_when: false
+      failed_when: false
+
+    - name: Check Main Kubernetes NGF backends
+      ansible.builtin.shell:
+        cmd: >
+          timeout 3 bash -c
+          'echo > /dev/tcp/{{ item.ip }}/{{ item.port }}'
+      loop: "{{ main_backends }}"
+      loop_control:
+        label: "{{ item.name }} {{ item.ip }}:{{ item.port }}"
+      register: main_backend_checks
+      changed_when: false
+      failed_when: false
+
+    - name: Check DR k3s NGF backend
+      ansible.builtin.shell:
+        cmd: >
+          timeout 3 bash -c
+          'echo > /dev/tcp/{{ dr_backend.ip }}/{{ dr_backend.port }}'
+      register: dr_backend_check
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # Per-LB result
+    # --------------------------------------------------------
+
     - name: Show LB health result
       ansible.builtin.debug:
         msg:
-          - "Host: {{ inventory_hostname }}"
-          - "HAProxy: {{ haproxy_status.stdout | default('unknown') }}"
-          - "Keepalived: {{ keepalived_status.stdout | default('unknown') }}"
-          - "HAProxy config: {{ 'OK' if haproxy_config.rc == 0 else 'FAILED' }}"
-          - "VIP {{ k8s_api_vip }}: {{ 'OWNED' if vip_status.rc == 0 else 'NOT OWNED' }}"
-          - "Port {{ k8s_api_port }}: {{ 'LISTENING' if api_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "========================================"
+          - "Host              : {{ inventory_hostname }}"
+          - "HAProxy           : {{ haproxy_status.stdout | default('UNKNOWN') }}"
+          - "Keepalived        : {{ keepalived_status.stdout | default('UNKNOWN') }}"
+          - "HAProxy Config    : {{ 'OK' if haproxy_config.rc == 0 else 'FAILED' }}"
+          - "DR Backup Config  : {{ 'OK' if dr_backup_config.rc == 0 else 'FAILED' }}"
+          - "API VIP           : {{ 'OWNED' if api_vip_status.rc == 0 else 'NOT OWNED' }}"
+          - "Service VIP       : {{ 'OWNED' if service_vip_status.rc == 0 else 'NOT OWNED' }}"
+          - "API :6443         : {{ 'LISTENING' if api_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "Service :443      : {{ 'LISTENING' if service_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "DR k3s :30443     : {{ 'REACHABLE' if dr_backend_check.rc == 0 else 'UNREACHABLE' }}"
+          - "========================================"
 
     - name: Validate essential LB status
       ansible.builtin.assert:
@@ -60,12 +192,19 @@
           - haproxy_status.stdout == "active"
           - keepalived_status.stdout == "active"
           - haproxy_config.rc == 0
+          - dr_backup_config.rc == 0
           - api_port_status.rc == 0
+          - service_port_status.rc == 0
+          - api_backend_checks.results | map(attribute='rc') | list | max == 0
+          - main_backend_checks.results | map(attribute='rc') | list | max == 0
+          - dr_backend_check.rc == 0
         success_msg: "{{ inventory_hostname }} LB health check PASSED"
         fail_msg: "{{ inventory_hostname }} LB health check FAILED"
 
+
 # ============================================================
 # VIP Ownership Validation
+# Exactly one LB must own each VIP
 # ============================================================
 
 - name: Validate VIP Ownership
@@ -74,48 +213,85 @@
 
   vars:
     k8s_api_vip: "192.168.34.100"
+    service_vip: "192.168.24.100"
 
   tasks:
-    - name: Build VIP holder list
+    - name: Initialize VIP holder lists
       ansible.builtin.set_fact:
-        vip_holders: >-
+        api_vip_holders: []
+        service_vip_holders: []
+
+    - name: Build API VIP holder list
+      ansible.builtin.set_fact:
+        api_vip_holders: >-
           {{
-            (vip_holders | default([]))
+            api_vip_holders
             +
-            ([item] if hostvars[item].vip_status.rc == 0 else [])
+            ([item] if hostvars[item].api_vip_status.rc == 0 else [])
           }}
       loop: "{{ groups['loadbalancers'] }}"
 
-    - name: Show VIP holder
-      ansible.builtin.debug:
-        msg: "VIP {{ k8s_api_vip }} holder: {{ vip_holders }}"
+    - name: Build Service VIP holder list
+      ansible.builtin.set_fact:
+        service_vip_holders: >-
+          {{
+            service_vip_holders
+            +
+            ([item] if hostvars[item].service_vip_status.rc == 0 else [])
+          }}
+      loop: "{{ groups['loadbalancers'] }}"
 
-    - name: Verify exactly one LB owns VIP
+    - name: Verify exactly one LB owns Kubernetes API VIP
       ansible.builtin.assert:
         that:
-          - vip_holders | length == 1
-        success_msg: "VIP {{ k8s_api_vip }} is correctly owned by {{ vip_holders[0] }}"
-        fail_msg: "VIP ownership abnormal. Current holders: {{ vip_holders }}"          
+          - api_vip_holders | length == 1
+        success_msg: >-
+          API VIP {{ k8s_api_vip }} is correctly owned by
+          {{ api_vip_holders[0] }}
+        fail_msg: >-
+          API VIP ownership abnormal.
+          Current holders: {{ api_vip_holders }}
+
+    - name: Verify exactly one LB owns Service VIP
+      ansible.builtin.assert:
+        that:
+          - service_vip_holders | length == 1
+        success_msg: >-
+          Service VIP {{ service_vip }} is correctly owned by
+          {{ service_vip_holders[0] }}
+        fail_msg: >-
+          Service VIP ownership abnormal.
+          Current holders: {{ service_vip_holders }}
+
+    # --------------------------------------------------------
+    # Final summary
+    # --------------------------------------------------------
 
     - name: Show LB final summary
       ansible.builtin.debug:
         msg:
-          - "========================================"
-          - " LOAD BALANCER HEALTH CHECK SUMMARY"
-          - "========================================"
-          - "LB1 HAProxy       : {{ hostvars['lb1'].haproxy_status.stdout | default('UNKNOWN') }}"
-          - "LB1 Keepalived    : {{ hostvars['lb1'].keepalived_status.stdout | default('UNKNOWN') }}"
-          - "LB1 HAProxy Config: {{ 'OK' if hostvars['lb1'].haproxy_config.rc == 0 else 'FAILED' }}"
-          - "LB1 VIP           : {{ 'OWNED' if hostvars['lb1'].vip_status.rc == 0 else 'NOT OWNED' }}"
-          - "LB1 Port 6443     : {{ 'LISTENING' if hostvars['lb1'].api_port_status.rc == 0 else 'NOT LISTENING' }}"
-          - "----------------------------------------"
-          - "LB2 HAProxy       : {{ hostvars['lb2'].haproxy_status.stdout | default('UNKNOWN') }}"
-          - "LB2 Keepalived    : {{ hostvars['lb2'].keepalived_status.stdout | default('UNKNOWN') }}"
-          - "LB2 HAProxy Config: {{ 'OK' if hostvars['lb2'].haproxy_config.rc == 0 else 'FAILED' }}"
-          - "LB2 VIP           : {{ 'OWNED' if hostvars['lb2'].vip_status.rc == 0 else 'NOT OWNED' }}"
-          - "LB2 Port 6443     : {{ 'LISTENING' if hostvars['lb2'].api_port_status.rc == 0 else 'NOT LISTENING' }}"
-          - "----------------------------------------"
-          - "VIP Holder        : {{ vip_holders | join(', ') }}"
-          - "========================================"
-          - "Overall           : PASSED"
-          - "========================================"          
+          - "=================================================="
+          - " LOAD BALANCER / DR HEALTH CHECK SUMMARY"
+          - "=================================================="
+          - "LB1 HAProxy          : {{ hostvars['lb1'].haproxy_status.stdout | default('UNKNOWN') }}"
+          - "LB1 Keepalived       : {{ hostvars['lb1'].keepalived_status.stdout | default('UNKNOWN') }}"
+          - "LB1 HAProxy Config   : {{ 'OK' if hostvars['lb1'].haproxy_config.rc == 0 else 'FAILED' }}"
+          - "LB1 DR Backup Config : {{ 'OK' if hostvars['lb1'].dr_backup_config.rc == 0 else 'FAILED' }}"
+          - "LB1 API :6443        : {{ 'LISTENING' if hostvars['lb1'].api_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "LB1 Service :443     : {{ 'LISTENING' if hostvars['lb1'].service_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "LB1 DR :30443        : {{ 'REACHABLE' if hostvars['lb1'].dr_backend_check.rc == 0 else 'UNREACHABLE' }}"
+          - "--------------------------------------------------"
+          - "LB2 HAProxy          : {{ hostvars['lb2'].haproxy_status.stdout | default('UNKNOWN') }}"
+          - "LB2 Keepalived       : {{ hostvars['lb2'].keepalived_status.stdout | default('UNKNOWN') }}"
+          - "LB2 HAProxy Config   : {{ 'OK' if hostvars['lb2'].haproxy_config.rc == 0 else 'FAILED' }}"
+          - "LB2 DR Backup Config : {{ 'OK' if hostvars['lb2'].dr_backup_config.rc == 0 else 'FAILED' }}"
+          - "LB2 API :6443        : {{ 'LISTENING' if hostvars['lb2'].api_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "LB2 Service :443     : {{ 'LISTENING' if hostvars['lb2'].service_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "LB2 DR :30443        : {{ 'REACHABLE' if hostvars['lb2'].dr_backend_check.rc == 0 else 'UNREACHABLE' }}"
+          - "--------------------------------------------------"
+          - "API VIP Holder       : {{ api_vip_holders | join(', ') }}"
+          - "Service VIP Holder   : {{ service_vip_holders | join(', ') }}"
+          - "DR Backend           : 192.168.34.71:30443 (backup)"
+          - "=================================================="
+          - "Overall              : PASSED"
+          - "=================================================="

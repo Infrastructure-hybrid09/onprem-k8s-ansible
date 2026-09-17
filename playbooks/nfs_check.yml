@@ -124,6 +124,14 @@
         fail_msg: "{{ item.item }} directory check FAILED"
       loop: "{{ export_directories.results }}"
 
+    - name: Validate required NFS exports
+      ansible.builtin.assert:
+        that:
+          - item in exportfs_status.stdout
+        success_msg: "{{ item }} is actively exported"
+        fail_msg: "{{ item }} is NOT actively exported"
+      loop: "{{ nfs_export_paths }}"
+
     - name: Show NFS final summary
       ansible.builtin.debug:
         msg:

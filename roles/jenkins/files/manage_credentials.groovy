@@ -14,53 +14,6 @@ def changed = false
 
 
 // =====================================================
-// Docker Hub Credential
-// - Backend base image pull 등에 사용
-// =====================================================
-
-def dockerCredentialId = '$docker_credential_id'
-def dockerUsername     = '$docker_username'
-def dockerToken        = '''$docker_token'''
-def dockerDescription  = 'Docker Hub Credentials'
-
-def existingDocker = store.getCredentials(domain).find {
-    it.id == dockerCredentialId
-}
-
-def newDockerCredential = new UsernamePasswordCredentialsImpl(
-    CredentialsScope.GLOBAL,
-    dockerCredentialId,
-    dockerDescription,
-    dockerUsername,
-    dockerToken
-)
-
-def dockerSame =
-    existingDocker instanceof UsernamePasswordCredentialsImpl &&
-    existingDocker.username == dockerUsername &&
-    existingDocker.password.plainText == dockerToken &&
-    existingDocker.description == dockerDescription
-
-if (!dockerSame) {
-
-    if (existingDocker != null) {
-        store.updateCredentials(
-            domain,
-            existingDocker,
-            newDockerCredential
-        )
-    } else {
-        store.addCredentials(
-            domain,
-            newDockerCredential
-        )
-    }
-
-    changed = true
-}
-
-
-// =====================================================
 // Application Repository SSH Credential
 // - 실제 팀 App Repository newTag commit/push용
 // =====================================================
@@ -117,6 +70,53 @@ if (!appRepoSame) {
     changed = true
 }
 
+
+
+// =====================================================
+// Harbor Registry Credential
+// - Jenkins image push/pull용 Robot Account
+// =====================================================
+
+def harborCredentialId = '$harbor_credential_id'
+def harborUsername     = '$harbor_username'
+def harborSecret       = '''$harbor_secret'''
+def harborDescription  = 'Harbor Registry Robot Account'
+
+def existingHarbor = store.getCredentials(domain).find {
+    it.id == harborCredentialId
+}
+
+def newHarborCredential = new UsernamePasswordCredentialsImpl(
+    CredentialsScope.GLOBAL,
+    harborCredentialId,
+    harborDescription,
+    harborUsername,
+    harborSecret
+)
+
+def harborSame =
+    existingHarbor instanceof UsernamePasswordCredentialsImpl &&
+    existingHarbor.username == harborUsername &&
+    existingHarbor.password.plainText == harborSecret &&
+    existingHarbor.description == harborDescription
+
+if (!harborSame) {
+
+    if (existingHarbor != null) {
+        store.updateCredentials(
+            domain,
+            existingHarbor,
+            newHarborCredential
+        )
+    } else {
+        store.addCredentials(
+            domain,
+            newHarborCredential
+        )
+    }
+
+    changed = true
+}
 
 store.save()
 

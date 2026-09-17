@@ -1,0 +1,41 @@
+---
+harbor_api_url: "http://harbor.nplan.local/api/v2.0"
+
+harbor_project_name: "neuroplan"
+harbor_project_public: false
+
+harbor_jenkins_robot_name: "jenkins"
+harbor_k8s_robot_name: "k8s-pull"
+
+harbor_robot_duration: -1
+
+harbor_admin_username: "admin"
+harbor_project_storage_limit: -1
+
+# Jenkins: Harbor image build/push
+harbor_jenkins_robot_permissions:
+  - kind: project
+    namespace: "{{ harbor_project_name }}"
+    access:
+      - action: pull
+        resource: repository
+      - action: push
+        resource: repository
+      - action: read
+        resource: repository
+
+# Kubernetes: Harbor image pull only
+harbor_k8s_robot_permissions:
+  - kind: project
+    namespace: "{{ harbor_project_name }}"
+    access:
+      - action: pull
+        resource: repository
+
+# Kubernetes administrator - Harbor human account
+harbor_k8s_admin_username: "k8s-admin"
+harbor_k8s_admin_email: "k8s-admin@nplan.local"
+harbor_k8s_admin_realname: "Kubernetes Administrator"
+
+# Harbor Project Admin role
+harbor_k8s_admin_role_id: 1

@@ -78,27 +78,46 @@
           - "stderr: {{ replication_status.stderr }}"
       when: inventory_hostname == "db-replica"
 
-    - name: Extract replication IO status
+    - name: Find replication status lines
       ansible.builtin.set_fact:
-        replication_io: >-
+        replication_io_line: >-
           {{
-            (
-              replication_status.stdout
-              | regex_findall('(?:Slave|Replica)_IO_Running:\\s*(\\S+)')
-              | first
-            ) | default('UNKNOWN', true)
+            replication_status.stdout_lines
+            | select('search', '_IO_Running:')
+            | list
+            | first
+            | default('')
           }}
-        replication_sql: >-
+        replication_sql_line: >-
           {{
-            (
-              replication_status.stdout
-              | regex_findall('(?:Slave|Replica)_SQL_Running:\\s*(\\S+)')
-              | first
-            ) | default('UNKNOWN', true)
+            replication_status.stdout_lines
+            | select('search', '_SQL_Running:')
+            | list
+            | first
+            | default('')
           }}
       when:
         - inventory_hostname == "db-replica"
         - replication_status.rc == 0
+
+    - name: Extract replication IO and SQL status
+      ansible.builtin.set_fact:
+        replication_io: >-
+          {{
+            (replication_io_line.split(':', 1)[1] | trim)
+            if ':' in replication_io_line
+            else 'UNKNOWN'
+          }}
+        replication_sql: >-
+          {{
+            (replication_sql_line.split(':', 1)[1] | trim)
+            if ':' in replication_sql_line
+            else 'UNKNOWN'
+          }}
+      when:
+        - inventory_hostname == "db-replica"
+        - replication_status.rc == 0
+
     # --------------------------------------------------------
     # Result
     # --------------------------------------------------------
@@ -125,8 +144,21 @@
     - name: Show Replica replication result
       ansible.builtin.debug:
         msg:
-          - "Replication IO: {{ replication_io | default('UNKNOWN') }}"
-          - "Replication SQL: {{ replication_sql | default('UNKNOWN') }}"
+          - "Replication IO: {{ 'Yes' if (replication_io | default(false) | bool) else 'No' }}"
+          - "Replication SQL: {{ 'Yes' if (replication_sql | default(false) | bool) else 'No' }}"
+      when: inventory_hostname == "db-replica"
+
+    - name: Validate MariaDB replication status
+      ansible.builtin.assert:
+        that:
+          - replication_status.rc == 0
+          - replication_io | bool
+          - replication_sql | bool
+        success_msg: "MariaDB replication health check PASSED"
+        fail_msg: >-
+          MariaDB replication health check FAILED
+          (IO={{ replication_io | default('UNKNOWN') }},
+          SQL={{ replication_sql | default('UNKNOWN') }})
       when: inventory_hostname == "db-replica"
 
 # ============================================================
@@ -135,7 +167,7 @@
 
 - name: Check MaxScale Health
   hosts: devops_nodes
-  become: true
+  become: false
   gather_facts: false
 
   vars:
@@ -205,6 +237,8 @@
           - maxscale_status.stdout == "active"
           - maxscale_enabled.stdout == "enabled"
           - maxscale_port_status.rc == 0
+          - maxscale_admin_status.rc == 0
+          - maxscale_servers.rc == 0
         success_msg: "MaxScale health check PASSED"
         fail_msg: "MaxScale health check FAILED"
 
@@ -214,15 +248,15 @@
           - "========================================"
           - " DATABASE HEALTH CHECK SUMMARY"
           - "========================================"
-          - "MariaDB Primary    : {{ hostvars['db-primary'].mariadb_status.stdout | default('UNKNOWN') }}"
-          - "MariaDB Replica    : {{ hostvars['db-replica'].mariadb_status.stdout | default('UNKNOWN') }}"
-          - "Primary Port 3306  : {{ 'LISTENING' if hostvars['db-primary'].mariadb_port_status.rc == 0 else 'NOT LISTENING' }}"
-          - "Replica Port 3306  : {{ 'LISTENING' if hostvars['db-replica'].mariadb_port_status.rc == 0 else 'NOT LISTENING' }}"
-          - "Replication IO     : {{ hostvars['db-replica'].replication_io | default('UNKNOWN') }}"
-          - "Replication SQL    : {{ hostvars['db-replica'].replication_sql | default('UNKNOWN') }}"
-          - "MaxScale Service   : {{ maxscale_status.stdout | default('UNKNOWN') }}"
-          - "MaxScale Port 4006 : {{ 'LISTENING' if maxscale_port_status.rc == 0 else 'NOT LISTENING' }}"
-          - "Admin Port 8989    : {{ 'LISTENING' if maxscale_admin_status.rc == 0 else 'NOT LISTENING' }}"
+          - "MariaDB Primary    : {{ hostvars['db-primary'].mariadb_status.stdout | default('N/A') }}"
+          - "MariaDB Replica    : {{ hostvars['db-replica'].mariadb_status.stdout | default('N/A') }}"
+          - "Primary Port 3306  : {{ 'LISTENING' if (hostvars['db-primary'].mariadb_port_status is defined and hostvars['db-primary'].mariadb_port_status.rc == 0) else 'N/A' }}"
+          - "Replica Port 3306  : {{ 'LISTENING' if (hostvars['db-replica'].mariadb_port_status is defined and hostvars['db-replica'].mariadb_port_status.rc == 0) else 'N/A' }}"
+          - "Replication IO     : {{ 'Yes' if (hostvars['db-replica'].replication_io | default(false) | bool) else 'No' }}"
+          - "Replication SQL    : {{ 'Yes' if (hostvars['db-replica'].replication_sql | default(false) | bool) else 'No' }}"
+          - "MaxScale Service   : {{ maxscale_status.stdout | default('N/A') }}"
+          - "MaxScale Port 4006 : {{ 'LISTENING' if (maxscale_port_status is defined and maxscale_port_status.rc == 0) else 'N/A' }}"
+          - "Admin Port 8989    : {{ 'LISTENING' if (maxscale_admin_status is defined and maxscale_admin_status.rc == 0) else 'N/A' }}"
           - "========================================"
           - "Overall            : PASSED"
-          - "========================================"          
+          - "========================================"

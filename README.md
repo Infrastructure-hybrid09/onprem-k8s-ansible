@@ -25,8 +25,8 @@ Developer Git Push
    Docker Build
         │
         ▼
-Private Registry Push
-192.168.34.21:5000
+Harbor Registry Push
+harbor.nplan.local:80
         │
         ▼
  Git SHA Image Tag
@@ -76,17 +76,17 @@ neuroplan-login-mvp/k8s/onprem
 
 ## Container Registry
 
-온프레미스 Private Container Registry를 사용합니다.
+온프레미스 Harbor Private Container Registry를 사용합니다.
 
 ```text
-192.168.34.21:5000
+harbor.nplan.local:80
 ```
 
 사용 이미지:
 
 ```text
-192.168.34.21:5000/neuroplan/frontend
-192.168.34.21:5000/neuroplan/backend
+harbor.nplan.local:80/neuroplan/frontend
+harbor.nplan.local:80/neuroplan/backend
 ```
 
 이미지 태그는 애플리케이션 Git Commit의 **7자리 Short SHA**를 사용합니다.
@@ -94,8 +94,8 @@ neuroplan-login-mvp/k8s/onprem
 예:
 
 ```text
-192.168.34.21:5000/neuroplan/frontend:9935cf5
-192.168.34.21:5000/neuroplan/backend:9935cf5
+harbor.nplan.local:80/neuroplan/frontend:9935cf5
+harbor.nplan.local:80/neuroplan/backend:9935cf5
 ```
 
 ---
@@ -126,10 +126,11 @@ Kubernetes Manifest만 변경
 → Application Image Build Skip
 ```
 
-Docker Image Push가 완료되면 Jenkins가 다음 파일의 `newTag`를 자동으로 변경합니다.
+Docker Image Push가 완료되면 Jenkins가 Main과 DR 배포 경로의 `newTag`를 자동으로 변경합니다.
 
 ```text
 neuroplan-login-mvp/k8s/onprem/kustomization.yaml
+neuroplan-login-mvp/k8s/dr/kustomization.yaml
 ```
 
 변경된 `kustomization.yaml`은 Jenkins가 다시 GitHub의 `main` Branch에 Commit / Push합니다.
@@ -150,43 +151,36 @@ Backend changed  : false
 Argo CD Application:
 
 ```text
-neuroplan-login-mvp
+Main : neuroplan-login-mvp
+DR   : neuroplan-login-mvp-dr
 ```
 
-Argo CD는 다음 경로를 Kubernetes의 Desired State로 사용합니다.
+각 Application은 다음 GitOps 경로를 Desired State로 사용합니다.
 
 ```text
-neuroplan-login-mvp/k8s/onprem
+Main : neuroplan-login-mvp/k8s/onprem
+DR   : neuroplan-login-mvp/k8s/dr
 ```
 
-Argo CD Auto Sync를 사용하여 Git의 Kustomize Image Tag 변경사항을 Kubernetes에 자동 반영합니다.
-
-정상 상태:
-
-```text
-NAME                  SYNC     HEALTH
-neuroplan-login-mvp   Synced   Healthy
-```
+Main Argo CD에 DR K3s Cluster를 등록하고,
+Argo CD Auto Sync를 통해 GitOps Repository의 Kustomize Image Tag 변경사항을 각 환경에 자동 반영합니다.
 
 전체 CD 흐름:
 
 ```text
-Jenkins Image Build / Push
-        │
-        ▼
-kustomization.yaml newTag 변경
-        │
-        ▼
+Jenkins Image Build / Harbor Push
+        |
+        v
+GitOps onprem / dr newTag 변경
+        |
+        v
 Git Commit / Push
-        │
-        ▼
-Argo CD 변경 감지
-        │
-        ▼
-Auto Sync
-        │
-        ▼
-Kubernetes Rolling Deployment
+        |
+        v
+Argo CD Auto Sync
+     /        \
+    v          v
+Main K8s    DR K3s
 ```
 
 ---
@@ -199,13 +193,18 @@ CI/CD 관련 주요 Ansible 구조:
 ansible-project/
 ├── inventory/
 │   └── group_vars/
-│       └── all/
-│           ├── main.yml
-│           └── vault.yml
 │
 ├── playbooks/
+│   ├── cicd.yml
 │   ├── devops.yml
-│   ├── argocd.yml
+│   ├── harbor.yml
+│   ├── harbor-bootstrap.yml
+│   ├── harbor-registry.yml
+│   ├── harbor-pull-secret.yml
+│   ├── k3s-argocd-access.yml
+│   ├── argocd-dr.yml
+│   ├── argocd-dr-application.yml
+│   ├── dr-application-secrets.yml
 │   └── argocd-sync.yml
 │
 └── roles/
@@ -213,14 +212,22 @@ ansible-project/
     ├── jenkins/
     ├── kubectl_client/
     ├── helm/
-    └── argocd/
+    ├── argocd/
+    ├── harbor/
+    ├── harbor_bootstrap/
+    ├── harbor_registry/
+    ├── harbor_pull_secret/
+    ├── k3s_argocd_access/
+    ├── argocd_dr_cluster/
+    ├── argocd_dr_application/
+    └── dr_application_secrets/
 ```
 
 ### 역할
 
 ```text
 docker
-→ Docker Engine 및 Private Registry 사용 설정
+→ Docker Engine 및 Harbor HTTP Registry 사용 설정
 
 jenkins
 → Jenkins 설치 및 CI Job / Credential 구성
@@ -253,17 +260,35 @@ ansible-playbook \
 
 ## Argo CD Configuration
 
-Argo CD 구성만 별도로 적용할 경우:
+Main Argo CD 설치 및 기본 Application 구성은 `devops.yml`에 포함되어 있습니다.
 
 ```bash
 ansible-playbook \
   -i inventory/hosts.ini \
-  playbooks/argocd.yml \
+  playbooks/devops.yml \
   -K \
   --ask-vault-pass
 ```
 
-`argocd-sync.yml`은 최초 Argo CD 관리 전환 시 사용하는 **1회성 Sync Playbook**입니다.
+DR K3s 연동은 다음 Playbook으로 구성합니다.
+
+```text
+playbooks/k3s-argocd-access.yml
+playbooks/argocd-dr.yml
+playbooks/argocd-dr-application.yml
+```
+
+전체 CI/CD 구성을 순서대로 적용할 경우:
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/cicd.yml \
+  -K \
+  --ask-vault-pass
+```
+
+`argocd-sync.yml`은 Argo CD 동기화 확인 및 운영 시 사용하는 보조 Playbook입니다.
 
 ---
 
@@ -271,32 +296,39 @@ ansible-playbook \
 
 민감정보는 Ansible Vault를 사용해 관리합니다.
 
+주요 Vault 파일:
+
 ```text
 inventory/group_vars/all/vault.yml
+inventory/group_vars/minio_nodes/vault.yml
 ```
 
 관리 대상 예:
 
 ```text
 GitHub SSH Private Key
-Docker Hub Token
+Harbor Robot Account Credential
 Jenkins Credential Secret
+MinIO Root Credential
 ```
 
-`vault.yml`은 `.gitignore`를 통해 Git Repository에서 제외합니다.
+`inventory/group_vars/all/vault.yml`은 `.gitignore`를 통해 Git Repository에서 제외합니다.
+
+일부 환경별 Vault 파일은 Ansible Vault로 암호화한 상태로 Git에서 관리합니다.
+
+Vault 파일은 다음과 같은 형식으로 암호화되어 있습니다.
 
 ```text
-inventory/group_vars/all/vault.yml
-*.vault
+$ANSIBLE_VAULT;1.1;AES256
 ```
 
-Vault 비밀번호는 Playbook 실행 시 직접 입력합니다.
+Vault 비밀번호는 Repository에 저장하지 않고 Playbook 실행 시 직접 입력합니다.
 
 ```text
 --ask-vault-pass
 ```
 
-Private Key, Token 등의 민감정보를 일반 변수 파일이나 Git Repository에 평문으로 저장하지 않습니다.
+Private Key, Token, Password 등의 민감정보를 일반 변수 파일이나 Git Repository에 평문으로 저장하지 않습니다.
 
 ---
 
@@ -315,7 +347,7 @@ Backend changed  : false
 
 ```text
 Frontend Build
-→ Private Registry Push
+→ Harbor Registry Push
 → Kustomize newTag 변경
 → Argo CD Auto Sync
 → Kubernetes Deployment 성공
@@ -332,7 +364,7 @@ Backend changed  : true
 
 ```text
 Backend Build
-→ Private Registry Push
+→ Harbor Registry Push
 → Kustomize newTag 변경
 → Argo CD Auto Sync
 → Kubernetes Deployment 성공
@@ -368,10 +400,10 @@ Kubernetes Deployment 성공
 
 ```text
 neuroplan-backend
-→ 192.168.34.21:5000/neuroplan/backend:9935cf5
+→ harbor.nplan.local:80/neuroplan/backend:9935cf5
 
 neuroplan-frontend
-→ 192.168.34.21:5000/neuroplan/frontend:9935cf5
+→ harbor.nplan.local:80/neuroplan/frontend:9935cf5
 ```
 
 Argo CD:
@@ -391,7 +423,7 @@ Synced   Healthy
 - Backend 단독 변경 감지 및 배포
 - Frontend + Backend 동시 변경 및 배포
 - 변경된 애플리케이션만 선택적 Build
-- Private Registry Image Push
+- Harbor Registry Image Push
 - Git Commit SHA 기반 Image Tag
 - Kustomize `newTag` 자동 갱신
 - Jenkins Git Commit / Push
@@ -422,8 +454,8 @@ Jenkins
 Docker Build
    │
    ▼
-Private Registry
-192.168.34.21:5000
+Harbor Registry
+harbor.nplan.local:80
    │
    ▼
 Git SHA Image Tag

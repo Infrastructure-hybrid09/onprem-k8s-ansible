@@ -26,7 +26,7 @@
 # ------------------------------------------------------------
 # 5. NTP configuration
 # ------------------------------------------------------------
-- import_playbook: playbooks/ntp.yml
+- import_playbook: playbooks/ntp-client.yml
 
 # ------------------------------------------------------------
 # 6. MinIO Object Storage
@@ -34,16 +34,6 @@
 - import_playbook: playbooks/minio.yml
 
 # ------------------------------------------------------------
-# 7. Load Balancer - HAProxy
-# ------------------------------------------------------------
-- import_playbook: playbooks/haproxy.yml
-
-# ------------------------------------------------------------
-# 8. Load Balancer - Keepalived
-# ------------------------------------------------------------
-- import_playbook: playbooks/keepalived.yml
-
-# ------------------------------------------------------------
-# 9. DevOps / CI-CD
+# 7 DevOps / CI-CD
 # ------------------------------------------------------------
 - import_playbook: playbooks/devops.yml

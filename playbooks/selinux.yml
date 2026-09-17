@@ -1,8 +1,0 @@
----
-- name: Enforce SELinux on non-Kubernetes nodes
-  hosts: "loadbalancers:devops_nodes:database:nfs_nodes:infra_nodes"
-  become: true
-  gather_facts: false
-
-  roles:
-    - selinux_enforcing

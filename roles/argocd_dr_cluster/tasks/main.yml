@@ -27,6 +27,7 @@
   become: false
   register: argocd_main_destination
   changed_when: false
+  check_mode: false
 
 - name: Protect Main Argo CD context
   ansible.builtin.assert:
@@ -53,6 +54,7 @@
       - name
   register: argocd_dr_secret_check
   changed_when: false
+  check_mode: false
 
 - name: Ensure DR token Secret is reachable
   ansible.builtin.assert:
@@ -73,6 +75,7 @@
       - json
   register: argocd_dr_secret_raw
   changed_when: false
+  check_mode: false
   no_log: true
 
 - name: Parse DR token Secret
@@ -131,9 +134,21 @@
   become: false
   register: argocd_dr_cluster_type
   changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode
 
 - name: Ensure DR cluster registration exists
   ansible.builtin.assert:
     that:
       - argocd_dr_cluster_type.stdout == "cluster"
     fail_msg: "DR K3s cluster Secret was not registered correctly."
+  when:
+    - not ansible_check_mode
+
+- name: Show DR cluster registration plan
+  ansible.builtin.debug:
+    msg: "DR K3s cluster would be registered in Main Argo CD."
+  when:
+    - ansible_check_mode
+  changed_when: true

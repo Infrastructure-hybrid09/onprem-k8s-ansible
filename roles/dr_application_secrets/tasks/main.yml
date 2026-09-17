@@ -1,0 +1,130 @@
+---
+# =========================================================
+# DR Application Secrets
+# Main Kubernetes에 존재하는 Gemini Secret을 DR k3s에 동기화
+# 실제 Secret 값은 Git/로그에 출력하지 않는다.
+# =========================================================
+
+- name: Read Gemini API key from Main Kubernetes
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - secret
+      - neuroplan-gemini-secrets
+      - -n
+      - application
+      - -o
+      - jsonpath={.data.GEMINI_API_KEY}
+  delegate_to: localhost
+  become: false
+  register: main_gemini_api_key
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Verify Gemini API key exists on Main Kubernetes
+  ansible.builtin.assert:
+    that:
+      - main_gemini_api_key.stdout | length > 0
+    fail_msg: "Main Kubernetes의 application/neuroplan-gemini-secrets/GEMINI_API_KEY가 없습니다."
+  no_log: true
+
+- name: Check application namespace on DR k3s
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - namespace
+      - application
+  register: dr_application_namespace
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create application namespace on DR k3s
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - create
+      - namespace
+      - application
+  when:
+    - dr_application_namespace.rc != 0
+    - not ansible_check_mode
+  register: dr_namespace_create
+  changed_when: dr_namespace_create.rc == 0
+
+- name: Show namespace action in check mode
+  ansible.builtin.debug:
+    msg: "DR k3s에 application namespace가 생성될 예정입니다."
+  when:
+    - dr_application_namespace.rc != 0
+    - ansible_check_mode
+
+- name: Read current Gemini API key from DR k3s
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - secret
+      - neuroplan-gemini-secrets
+      - -n
+      - application
+      - -o
+      - jsonpath={.data.GEMINI_API_KEY}
+  register: dr_gemini_api_key
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Apply Gemini Secret to DR k3s
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - apply
+      - -f
+      - "-"
+    stdin: |
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: neuroplan-gemini-secrets
+        namespace: application
+      type: Opaque
+      data:
+        GEMINI_API_KEY: {{ main_gemini_api_key.stdout }}
+  when:
+    - not ansible_check_mode
+    - dr_gemini_api_key.rc != 0 or
+      dr_gemini_api_key.stdout != main_gemini_api_key.stdout
+  register: dr_gemini_secret_apply
+  changed_when: true
+  no_log: true
+
+- name: Show Gemini Secret action in check mode
+  ansible.builtin.debug:
+    msg: "DR k3s의 neuroplan-gemini-secrets가 생성 또는 갱신될 예정입니다."
+  when:
+    - ansible_check_mode
+    - dr_gemini_api_key.rc != 0 or
+      dr_gemini_api_key.stdout != main_gemini_api_key.stdout
+
+- name: Verify Gemini Secret on DR k3s
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - secret
+      - neuroplan-gemini-secrets
+      - -n
+      - application
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode

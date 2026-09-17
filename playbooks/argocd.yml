@@ -1,7 +1,0 @@
----
-- name: Configure Argo CD
-  hosts: devops_nodes
-  become: true
-
-  roles:
-    - argocd

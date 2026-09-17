@@ -1,0 +1,61 @@
+---
+- name: Validate Harbor pull credentials
+  ansible.builtin.assert:
+    that:
+      - harbor_pull_username | length > 0
+      - vault_harbor_pull_secret is defined
+      - vault_harbor_pull_secret | length > 0
+    fail_msg: "Harbor pull credentials are not configured."
+  no_log: true
+
+- name: Build Harbor Docker authentication config
+  ansible.builtin.set_fact:
+    harbor_pull_dockerconfig: >-
+      {{
+        {
+          'auths': {
+            harbor_registry: {
+              'username': harbor_pull_username,
+              'password': vault_harbor_pull_secret,
+              'auth': (harbor_pull_username ~ ':' ~ vault_harbor_pull_secret) | b64encode
+            }
+          }
+        }
+      }}
+  no_log: true
+
+- name: Build Harbor pull Secret manifest
+  ansible.builtin.set_fact:
+    harbor_pull_secret_manifest:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ harbor_pull_secret_name }}"
+        namespace: "{{ harbor_pull_namespace }}"
+      type: kubernetes.io/dockerconfigjson
+      data:
+        .dockerconfigjson: "{{ harbor_pull_dockerconfig | to_json | b64encode }}"
+  no_log: true
+
+- name: Ensure application namespace exists
+  ansible.builtin.command:
+    cmd: "{{ harbor_kubectl_command }} apply -f -"
+    stdin: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: {{ harbor_pull_namespace }}
+  register: harbor_namespace_apply
+  changed_when: >
+    'created' in harbor_namespace_apply.stdout or
+    'configured' in harbor_namespace_apply.stdout
+
+- name: Apply Harbor pull Secret
+  ansible.builtin.command:
+    cmd: "{{ harbor_kubectl_command }} apply -f -"
+    stdin: "{{ harbor_pull_secret_manifest | to_nice_yaml }}"
+  register: harbor_secret_apply
+  changed_when: >
+    'created' in harbor_secret_apply.stdout or
+    'configured' in harbor_secret_apply.stdout
+  no_log: true

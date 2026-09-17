@@ -1,0 +1,114 @@
+---
+# ============================================================
+# BIND / DNS Health Check
+# ============================================================
+
+- name: Check BIND service
+  ansible.builtin.command:
+    cmd: "systemctl is-active {{ infra_check_bind_service }}"
+  register: bind_service
+  changed_when: false
+  failed_when: false
+
+
+- name: Check DNS TCP port 53
+  ansible.builtin.shell: |
+    ss -lntH | grep -q ':53 '
+  register: dns_tcp
+  changed_when: false
+  failed_when: false
+
+
+- name: Check DNS UDP port 53
+  ansible.builtin.shell: |
+    ss -lnuH | grep -q ':53 '
+  register: dns_udp
+  changed_when: false
+  failed_when: false
+
+
+- name: Check nplan.local DNS zone resolution
+  ansible.builtin.shell: |
+    dig @{{ infra_check_dns_server }} {{ infra_check_dns_zone }} SOA +short | grep -q .
+  register: dns_resolution
+  changed_when: false
+  failed_when: false
+
+
+# ============================================================
+# Chrony / NTP Health Check
+# ============================================================
+
+- name: Check Chrony service
+  ansible.builtin.command:
+    cmd: "systemctl is-active {{ infra_check_chrony_service }}"
+  register: chrony_service
+  changed_when: false
+  failed_when: false
+
+
+- name: Check NTP UDP port 123
+  ansible.builtin.shell: |
+    ss -lnuH | grep -q ':123 '
+  register: ntp_udp
+  changed_when: false
+  failed_when: false
+
+
+- name: Check NTP synchronization
+  ansible.builtin.shell: |
+    chronyc tracking | grep -Eq '^Leap status[[:space:]]*:[[:space:]]*Normal'
+  register: ntp_sync
+  changed_when: false
+  failed_when: false
+
+
+# ============================================================
+# Health Check Result
+# ============================================================
+
+- name: Set Infra health check results
+  ansible.builtin.set_fact:
+    bind_status: "{{ 'active' if bind_service.rc == 0 else 'inactive' }}"
+    dns_tcp_status: "{{ 'LISTENING' if dns_tcp.rc == 0 else 'NOT LISTENING' }}"
+    dns_udp_status: "{{ 'LISTENING' if dns_udp.rc == 0 else 'NOT LISTENING' }}"
+    dns_resolve_status: "{{ 'RESOLVED' if dns_resolution.rc == 0 else 'FAILED' }}"
+    chrony_status: "{{ 'active' if chrony_service.rc == 0 else 'inactive' }}"
+    ntp_udp_status: "{{ 'LISTENING' if ntp_udp.rc == 0 else 'NOT LISTENING' }}"
+    ntp_sync_status: "{{ 'SYNC' if ntp_sync.rc == 0 else 'NOT SYNC' }}"
+
+
+- name: Determine Infra overall status
+  ansible.builtin.set_fact:
+    infra_overall_status: >-
+      {{
+        'PASSED'
+        if
+          bind_service.rc == 0 and
+          dns_tcp.rc == 0 and
+          dns_udp.rc == 0 and
+          dns_resolution.rc == 0 and
+          chrony_service.rc == 0 and
+          ntp_udp.rc == 0 and
+          ntp_sync.rc == 0
+        else
+          'FAILED'
+      }}
+
+
+- name: Show Infra final summary
+  ansible.builtin.debug:
+    msg:
+      - "========================================"
+      - " INFRA HEALTH CHECK SUMMARY"
+      - "========================================"
+      - "BIND Service         : {{ bind_status }}"
+      - "DNS Port 53/TCP      : {{ dns_tcp_status }}"
+      - "DNS Port 53/UDP      : {{ dns_udp_status }}"
+      - "{{ infra_check_dns_zone }}          : {{ dns_resolve_status }}"
+      - "Chrony Service       : {{ chrony_status }}"
+      - "NTP Port 123/UDP     : {{ ntp_udp_status }}"
+      - "NTP Synchronization  : {{ ntp_sync_status }}"
+      - "========================================"
+      - "Overall              : {{ infra_overall_status }}"
+      - "========================================"

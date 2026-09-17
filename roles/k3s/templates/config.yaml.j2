@@ -17,6 +17,8 @@ cluster-domain: {{ k3s_cluster_domain }}
 
 selinux: true
 
+supervisor-metrics: {{ k3s_supervisor_metrics | bool | lower }}
+
 disable:
 {% for component in k3s_disable_components %}
   - {{ component }}

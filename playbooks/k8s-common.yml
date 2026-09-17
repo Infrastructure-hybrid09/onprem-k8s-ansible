@@ -1,6 +1,6 @@
 ---
 - name: Configure Kubernetes Node Prerequisites
-  hosts: k8s_nodes
+  hosts: "control_plane:workers"
   become: true
   gather_facts: true
 

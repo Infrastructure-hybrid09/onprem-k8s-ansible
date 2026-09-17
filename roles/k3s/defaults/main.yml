@@ -21,3 +21,6 @@ k3s_cluster_domain: "neuroplan.local"
 k3s_disable_components:
   - traefik
   - servicelb
+
+# K3s monitoring
+k3s_supervisor_metrics: true

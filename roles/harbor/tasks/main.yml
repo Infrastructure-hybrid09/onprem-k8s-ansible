@@ -1,0 +1,127 @@
+---
+- name: Check Harbor data volume mount
+  ansible.builtin.command:
+    cmd: "mountpoint -q {{ harbor_data_volume }}"
+  register: harbor_data_mount
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Fail if Harbor data volume is not mounted
+  ansible.builtin.assert:
+    that:
+      - harbor_data_mount.rc == 0
+    fail_msg: "{{ harbor_data_volume }} is not mounted. Harbor installation stopped."
+    success_msg: "{{ harbor_data_volume }} is mounted."
+
+- name: Check Docker installation
+  ansible.builtin.command:
+    cmd: docker --version
+  register: harbor_docker_version
+  changed_when: false
+
+- name: Check Docker Compose installation
+  ansible.builtin.command:
+    cmd: docker compose version
+  register: harbor_compose_version
+  changed_when: false
+
+- name: Create Harbor installation root directory
+  ansible.builtin.file:
+    path: "{{ harbor_install_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check Harbor installer
+  ansible.builtin.stat:
+    path: "{{ harbor_install_dir }}/install.sh"
+  register: harbor_installer
+
+- name: Download Harbor offline installer
+  ansible.builtin.get_url:
+    url: "{{ harbor_installer_url }}"
+    dest: "{{ harbor_installer_archive }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not harbor_installer.stat.exists
+
+- name: Extract Harbor offline installer
+  ansible.builtin.unarchive:
+    src: "{{ harbor_installer_archive }}"
+    dest: "{{ harbor_install_root }}"
+    remote_src: true
+  when: not harbor_installer.stat.exists
+
+- name: Check existing Harbor docker-compose file
+  ansible.builtin.stat:
+    path: "{{ harbor_install_dir }}/docker-compose.yml"
+  register: harbor_compose_file
+
+- name: Deploy Harbor configuration
+  ansible.builtin.template:
+    src: harbor.yml.j2
+    dest: "{{ harbor_install_dir }}/harbor.yml"
+    owner: root
+    group: root
+    backup: true
+  register: harbor_config
+  no_log: true
+
+- name: Secure Harbor configuration permissions
+  ansible.builtin.file:
+    path: "{{ harbor_install_dir }}/harbor.yml"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Prepare Harbor configuration
+  ansible.builtin.command:
+    cmd: ./prepare
+    chdir: "{{ harbor_install_dir }}"
+  when:
+    - harbor_compose_file.stat.exists
+    - harbor_config.changed
+  notify: Restart Harbor
+
+- name: Install Harbor for first deployment
+  ansible.builtin.command:
+    cmd: ./install.sh
+    chdir: "{{ harbor_install_dir }}"
+  when: not harbor_compose_file.stat.exists
+
+- name: Flush Harbor handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure Harbor containers are running
+  ansible.builtin.command:
+    cmd: docker compose up -d
+    chdir: "{{ harbor_install_dir }}"
+  register: harbor_compose_up
+  changed_when: >
+    'Created' in harbor_compose_up.stderr or
+    'Started' in harbor_compose_up.stderr or
+    'Recreated' in harbor_compose_up.stderr
+
+- name: Check Harbor containers
+  ansible.builtin.command:
+    cmd: docker compose ps
+    chdir: "{{ harbor_install_dir }}"
+  register: harbor_compose_status
+  changed_when: false
+
+- name: Verify Harbor Registry API
+  ansible.builtin.uri:
+    url: "http://{{ harbor_hostname }}:{{ harbor_http_port }}/v2/"
+    method: GET
+    status_code:
+      - 200
+      - 401
+    return_content: false
+  register: harbor_registry_api
+  check_mode: false
+  retries: 10
+  delay: 3
+  until: harbor_registry_api.status in [200, 401]

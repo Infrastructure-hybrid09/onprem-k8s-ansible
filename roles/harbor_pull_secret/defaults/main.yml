@@ -1,0 +1,9 @@
+---
+harbor_registry: "harbor.nplan.local:80"
+harbor_pull_username: 'robot$k8s-pull'
+
+harbor_pull_secret_name: "harbor-pull-secret"
+harbor_pull_namespace: "application"
+
+# Main Kubernetes 기본 명령
+harbor_kubectl_command: "kubectl"

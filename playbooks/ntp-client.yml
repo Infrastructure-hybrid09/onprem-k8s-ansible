@@ -1,0 +1,12 @@
+---
+# ============================================================
+# InfraReady - NTP Client Configuration
+# All managed nodes synchronize with Infra NTP server
+# ============================================================
+
+- name: Configure NTP clients
+  hosts: all:!infra_nodes
+  become: true
+
+  roles:
+    - ntp

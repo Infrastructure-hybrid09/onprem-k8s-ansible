@@ -12,6 +12,7 @@
     cmd: systemctl is-active k3s
   register: k3s_argocd_k3s_status
   changed_when: false
+  check_mode: false
 
 - name: Ensure k3s is running
   ansible.builtin.assert:
@@ -55,6 +56,7 @@
   args:
     executable: /bin/bash
   changed_when: false
+  check_mode: false
 
 - name: Verify Argo CD permission in application namespace
   ansible.builtin.command:
@@ -68,6 +70,7 @@
       - --as=system:serviceaccount:kube-system:{{ k3s_argocd_service_account_name }}
   register: k3s_argocd_allowed
   changed_when: false
+  check_mode: false
   failed_when: k3s_argocd_allowed.stdout != "yes"
 
 - name: Verify Argo CD cannot manage default namespace
@@ -82,6 +85,7 @@
       - --as=system:serviceaccount:kube-system:{{ k3s_argocd_service_account_name }}
   register: k3s_argocd_default_permission
   changed_when: false
+  check_mode: false
   failed_when: k3s_argocd_default_permission.stdout != "no"
 
 - name: Verify Argo CD cannot create namespaces
@@ -95,4 +99,5 @@
       - --as=system:serviceaccount:kube-system:{{ k3s_argocd_service_account_name }}
   register: k3s_argocd_namespace_create
   changed_when: false
+  check_mode: false
   failed_when: k3s_argocd_namespace_create.stdout != "no"

@@ -1,6 +1,6 @@
 ---
 - name: Configure DNS Clients
-  hosts: "loadbalancers:database:nfs_nodes:devops_nodes:minio_nodes:k3s_nodes"
+  hosts: "loadbalancers:database:nfs_nodes:devops_nodes:minio_nodes:k3s_nodes:monitoring_nodes"
   become: true
   gather_facts: true
 

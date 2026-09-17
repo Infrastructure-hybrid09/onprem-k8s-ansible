@@ -1,0 +1,5 @@
+server = "{{ harbor_registry_url }}"
+
+[host."{{ harbor_registry_url }}"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = true

@@ -1,0 +1,26 @@
+---
+# Harbor version
+harbor_version: "v2.15.2"
+
+# Harbor network
+harbor_hostname: "harbor.nplan.local"
+harbor_http_port: 80
+
+# Harbor installation
+harbor_install_root: "/opt/harbor-install"
+harbor_install_dir: "{{ harbor_install_root }}/harbor"
+harbor_installer_archive: "{{ harbor_install_root }}/harbor-offline-installer-{{ harbor_version }}.tgz"
+
+harbor_installer_url: >-
+  https://github.com/goharbor/harbor/releases/download/{{ harbor_version }}/harbor-offline-installer-{{ harbor_version }}.tgz
+
+# Harbor persistent data
+harbor_data_volume: "/data"
+
+# HTTPS는 현재 1차 프로젝트에서 미사용
+harbor_https_enabled: false
+
+# HTTPS settings (현재 1차 프로젝트에서는 false)
+harbor_https_port: 443
+harbor_https_certificate: "/etc/harbor/certs/harbor.crt"
+harbor_https_private_key: "/etc/harbor/certs/harbor.key"
