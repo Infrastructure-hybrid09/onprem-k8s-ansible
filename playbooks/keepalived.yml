@@ -1,8 +1,0 @@
----
-- name: Configure Keepalived
-  hosts: loadbalancers
-  become: true
-  gather_facts: true
-
-  roles:
-    - keepalived

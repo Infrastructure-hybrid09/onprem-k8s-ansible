@@ -1,8 +1,0 @@
----
-- name: Configure Infra BIND DNS Server
-  hosts: infra_nodes
-  become: true
-  gather_facts: true
-
-  roles:
-    - dns_server

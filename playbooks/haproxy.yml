@@ -1,8 +1,0 @@
----
-- name: Configure HAProxy servers
-  hosts: loadbalancers
-  become: true
-  gather_facts: true
-
-  roles:
-    - haproxy
