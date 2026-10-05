@@ -1,264 +1,527 @@
-# Ansible Roles 구성
+# Ansible Playbooks
 
-InfraReady 1차 온프레미스 Kubernetes 환경과 DR k3s 환경을 자동화하기 위해 사용하는 Ansible Role 모음입니다.
+InfraReady 온프레미스 Kubernetes 프로젝트의 인프라 구성, CI/CD, DR, 모니터링 및 상태 점검을 실행하는 Ansible Playbook 모음입니다.
 
-공통 OS 설정부터 DevOps 도구, Harbor Registry, Argo CD GitOps, Kubernetes/DR, 모니터링, MinIO까지 기능 단위로 Role을 분리해 관리합니다. 각 Role은 필요한 설정만 독립적으로 적용할 수 있으며, 프로젝트 Playbook에서 조합해 전체 환경을 구성합니다.
+`playbooks/`는 실제 실행 단위이며, 대부분의 Playbook은 `roles/`에 정의된 Role을 대상 Inventory Group에 적용합니다. 일부 Health Check Playbook은 별도 Role 없이 점검 Task를 직접 포함합니다.
 
-## 주요 기능
+---
 
-- 전체 서버 공통 설정 및 `/etc/hosts`, DNS, NTP 클라이언트 구성
-- Kubernetes 노드 공통 사전 설정
-- Java, Maven, Node.js, Docker, kubectl, Helm 등 DevOps 도구 구성
-- Jenkins CI 환경 및 Harbor Private Registry 구성
-- Harbor Project, Robot Account, Registry 연결 및 Image Pull Secret 구성
-- Argo CD 설치와 Main/DR GitOps Application 구성
-- DR k3s 설치 및 Argo CD 연동
-- VM/Kubernetes/DR 환경의 모니터링 Exporter 구성
-- MinIO Object Storage 설치 및 서비스 검증
-- DNS/NTP 인프라 상태 점검
+## 주요 구성
 
-## Role 구성
+- 전체 노드 공통 설정 및 `/etc/hosts` 표준화
+- DNS Client 및 NTP Client 구성
+- Kubernetes 노드 사전 설정
+- DevOps CI/CD 환경 구성
+- Harbor Registry 및 Image Pull 환경 구성
+- Main Kubernetes와 DR k3s의 Argo CD 연동
+- DR k3s 및 MinIO 구성
+- VM / Kubernetes / DR 모니터링 구성
+- LB / DB / NFS / Infra Health Check
+- 전체 CI/CD 구성 순차 실행
 
-### 공통 시스템 및 네트워크
+---
 
-| Role | 역할 |
-|---|---|
-| [`common`](common/) | 호스트명, `Asia/Seoul` 타임존, 공통 패키지, SSH 서비스 등 기본 OS 환경 구성 |
-| [`hosts_config`](hosts_config/) | Jinja2 템플릿을 이용해 표준화된 `/etc/hosts` 파일 배포 |
-| [`dns_client`](dns_client/) | Management NIC를 기준으로 내부 DNS 서버와 `nplan.local` Search Domain을 적용하고 내부·외부 이름 해석 검증 |
-| [`ntp`](ntp/) | Chrony 설치 및 중앙 NTP 서버 연동, 동기화 상태 검증 |
-| [`infra_check`](infra_check/) | Infra 노드의 BIND/DNS 및 Chrony/NTP 서비스·포트·동기화 상태 점검 |
+## Playbook 구성
 
-### DevOps 및 CI 환경
+### 공통 인프라
 
-| Role | 역할 |
-|---|---|
-| [`java`](java/) | Jenkins 및 Java 기반 빌드에 필요한 Java Runtime/JDK 구성 |
-| [`maven`](maven/) | Backend 빌드에 사용하는 Maven 구성 |
-| [`nodejs`](nodejs/) | Frontend 빌드에 사용하는 Node.js 환경 구성 |
-| [`docker`](docker/) | Docker Engine 구성 및 CI 빌드 환경 준비 |
-| [`jenkins`](jenkins/) | Jenkins 설치와 CI Job, Plugin, Credential 등 자동화 구성 |
-| [`kubectl_client`](kubectl_client/) | DevOps 호스트에서 Kubernetes를 관리하기 위한 `kubectl` Client 구성 |
-| [`helm`](helm/) | Kubernetes 패키지 배포에 사용하는 Helm Client 구성 |
+| Playbook | 대상 | Role | 역할 |
+|---|---|---|---|
+| [`common.yml`](common.yml) | `project_nodes` | `common` | 호스트명, 타임존, 공통 패키지, SSHD 등 기본 시스템 설정 |
+| [`hosts.yml`](hosts.yml) | `project_nodes` | `hosts_config` | 프로젝트 표준 `/etc/hosts` 배포 |
+| [`dns-client.yml`](dns-client.yml) | LB / DB / NFS / DevOps / MinIO / k3s / Monitoring | `dns_client` | Management Network의 DNS 서버 및 Search Domain 설정 |
+| [`ntp-client.yml`](ntp-client.yml) | `all:!infra_nodes` | `ntp` | 전체 관리 노드를 Infra NTP 서버에 동기화 |
+| [`infra_check.yml`](infra_check.yml) | `infra_nodes` | `infra_check` | BIND DNS 및 Chrony NTP 상태 점검 |
 
-### Argo CD 및 GitOps
+### Kubernetes / DR
 
-| Role | 역할 |
-|---|---|
-| [`argocd`](argocd/) | Helm을 이용한 Argo CD 설치·업그레이드와 Main Application Manifest 생성 및 적용 |
-| [`k3s_argocd_access`](k3s_argocd_access/) | Main Argo CD가 DR k3s에 접근할 수 있도록 클러스터 접근 정보와 권한 준비 |
-| [`argocd_dr_cluster`](argocd_dr_cluster/) | DR k3s 클러스터를 Main Argo CD 관리 대상 클러스터로 등록 |
-| [`argocd_dr_application`](argocd_dr_application/) | DR GitOps 경로를 사용하는 Argo CD Application 구성 |
-| [`dr_application_secrets`](dr_application_secrets/) | DR 애플리케이션 구동에 필요한 Kubernetes Secret 구성 |
+| Playbook | 대상 | Role | 역할 |
+|---|---|---|---|
+| [`k8s-common.yml`](k8s-common.yml) | `control_plane`, `workers` | `k8s_common` | Kubernetes 노드 사전 설정 적용 |
+| [`k3s.yml`](k3s.yml) | `k3s_nodes` | `k3s`, `k3s_argocd_access` | DR k3s 설치 및 Argo CD 접근 준비 |
+| [`k3s-argocd-access.yml`](k3s-argocd-access.yml) | `k3s_nodes` | `k3s_argocd_access` | Main Argo CD가 DR k3s에 접근할 수 있도록 설정 |
+| [`dr-application-secrets.yml`](dr-application-secrets.yml) | `k3s_nodes` | `dr_application_secrets` | DR 애플리케이션에 필요한 Secret 구성 |
 
-Main과 DR의 GitOps 배포 경로는 애플리케이션 저장소의 Kustomize 구성을 기준으로 관리합니다.
+### DevOps / CI/CD
 
-```text
-Main : neuroplan-login-mvp/k8s/onprem
-DR   : neuroplan-login-mvp/k8s/dr
-```
+| Playbook | 대상 | Role | 역할 |
+|---|---|---|---|
+| [`devops.yml`](devops.yml) | `devops_nodes` | `java`, `maven`, `nodejs`, `docker`, `kubectl_client`, `jenkins`, `helm`, `argocd` | Jenkins 기반 CI와 Argo CD 기반 CD 환경 구성 |
+| [`cicd.yml`](cicd.yml) | 여러 Playbook 순차 실행 | - | Harbor → DevOps → Registry → Secret → DR Argo CD 연동까지 전체 CI/CD 구성 |
+| [`argocd-sync.yml`](argocd-sync.yml) | `devops_nodes` | 직접 Task | Main Argo CD Application 최초 Sync 수행 및 `Synced:Healthy` 대기 |
 
 ### Harbor Registry
 
-| Role | 역할 |
-|---|---|
-| [`harbor`](harbor/) | Harbor Offline Installer 배포, `harbor.yml` 생성, Docker Compose 기반 서비스 구성 및 Registry API 검증 |
-| [`harbor_bootstrap`](harbor_bootstrap/) | Harbor Project, 사용자, Jenkins/Kubernetes Robot Account 및 권한을 API로 초기 구성 |
-| [`harbor_registry`](harbor_registry/) | Main Worker의 containerd와 DR k3s가 Harbor Registry를 사용할 수 있도록 Registry 설정 배포 |
-| [`harbor_pull_secret`](harbor_pull_secret/) | 애플리케이션 Namespace에 Harbor 인증용 `kubernetes.io/dockerconfigjson` Image Pull Secret 생성 |
+| Playbook | 대상 | Role | 역할 |
+|---|---|---|---|
+| [`harbor.yml`](harbor.yml) | `minio_nodes` | `docker`, `harbor` | Harbor Registry 서버 구성 |
+| [`harbor-bootstrap.yml`](harbor-bootstrap.yml) | `minio_nodes` | `harbor_bootstrap` | Harbor Project, Robot Account, 관리자 계정 구성 |
+| [`harbor-registry.yml`](harbor-registry.yml) | `workers`, `k3s_nodes` | `harbor_registry` | Main Kubernetes 및 DR k3s의 Harbor Registry Runtime 설정 |
+| [`harbor-pull-secret.yml`](harbor-pull-secret.yml) | `devops_nodes`, `k3s_nodes` | `harbor_pull_secret` | Main Kubernetes 및 DR k3s에 Image Pull Secret 적용 |
 
-프로젝트에서 사용하는 Private Registry는 다음 주소를 기준으로 구성합니다.
+### Argo CD / GitOps DR 연동
 
-```text
-harbor.nplan.local:80
-```
+| Playbook | 대상 | Role | 역할 |
+|---|---|---|---|
+| [`argocd-dr.yml`](argocd-dr.yml) | `k3s_nodes` | `argocd_dr_cluster` | DR k3s Cluster를 Main Argo CD에 등록 |
+| [`argocd-dr-application.yml`](argocd-dr-application.yml) | `localhost` | `argocd_dr_application` | DR용 Argo CD Application 구성 |
+| [`argocd-sync.yml`](argocd-sync.yml) | `devops_nodes` | 직접 Task | Main Application 최초 동기화 및 상태 확인 |
 
-### Kubernetes 및 DR
+### Monitoring
 
-| Role | 역할 |
-|---|---|
-| [`k8s_common`](k8s_common/) | Control Plane/Worker 노드의 SELinux Permissive 및 firewalld 비활성화 등 Kubernetes 공통 사전 설정 |
-| [`k3s`](k3s/) | 고정 버전의 DR k3s 설치, 설정 파일 배포, 서비스 기동, API 및 Node Ready 상태 검증 |
+| Playbook | 대상 | Role | 역할 |
+|---|---|---|---|
+| [`monitoring.yml`](monitoring.yml) | `monitoring_vm_nodes`, `devops_nodes` | `node_exporter_vm`, `node_exporter_k8s` | VM Node Exporter 설치 및 Kubernetes Node Exporter DaemonSet 배포 |
+| [`k3s-monitoring.yml`](k3s-monitoring.yml) | `k3s_nodes` | `k3s_monitoring` | DR k3s의 Node Exporter, kube-state-metrics 및 외부 Prometheus 접근 구성 |
+| [`minio-monitoring.yml`](minio-monitoring.yml) | `minio_nodes` | `node_exporter_vm` | MinIO VM에 Node Exporter 설치 |
 
-### 모니터링
+### Storage
 
-| Role | 역할 |
-|---|---|
-| [`node_exporter_vm`](node_exporter_vm/) | 일반 VM에 Node Exporter를 설치해 시스템 메트릭 수집 대상 구성 |
-| [`node_exporter_k8s`](node_exporter_k8s/) | Main Kubernetes에 Node Exporter DaemonSet을 배포해 노드 메트릭 수집 |
-| [`k3s_monitoring`](k3s_monitoring/) | DR k3s에 Node Exporter, kube-state-metrics 및 외부 Prometheus 접근용 RBAC 구성 |
+| Playbook | 대상 | Role | 역할 |
+|---|---|---|---|
+| [`minio.yml`](minio.yml) | `minio_nodes` | `minio` | 고정 버전 MinIO Community 설치 및 서비스 구성 |
 
-### Object Storage
+### Health Check
 
-| Role | 역할 |
-|---|---|
-| [`minio`](minio/) | 별도 데이터 마운트를 검증한 뒤 MinIO Community를 설치하고 systemd 서비스, S3 API, Console 및 Health Endpoint 검증 |
+| Playbook | 대상 | 점검 항목 |
+|---|---|---|
+| [`lb_check.yml`](lb_check.yml) | `loadbalancers` | HAProxy / Keepalived, API VIP, Service VIP, Main Kubernetes Backend, DR k3s Backup Backend |
+| [`db_check.yml`](db_check.yml) | `database`, `devops_nodes` | MariaDB 서비스, Replication, MaxScale 상태 |
+| [`nfs_check.yml`](nfs_check.yml) | `nfs_nodes` | NFS 서비스, `/etc/exports`, TCP 2049, 백업 공유 디렉터리 |
+| [`infra_check.yml`](infra_check.yml) | `infra_nodes` | BIND, DNS 53/TCP·UDP, `nplan.local`, Chrony, NTP 123/UDP, 시간 동기화 |
 
-## 전체 Role 구조
-
-```text
-roles/
-├── argocd/
-├── argocd_dr_application/
-├── argocd_dr_cluster/
-├── common/
-├── dns_client/
-├── docker/
-├── dr_application_secrets/
-├── harbor/
-├── harbor_bootstrap/
-├── harbor_pull_secret/
-├── harbor_registry/
-├── helm/
-├── hosts_config/
-├── infra_check/
-├── java/
-├── jenkins/
-├── k3s/
-├── k3s_argocd_access/
-├── k3s_monitoring/
-├── k8s_common/
-├── kubectl_client/
-├── maven/
-├── minio/
-├── node_exporter_k8s/
-├── node_exporter_vm/
-├── nodejs/
-└── ntp/
-```
-
-## 실행 전 준비
-
-저장소 루트에서 Ansible을 실행합니다.
-
-- Inventory 및 대상 그룹이 올바르게 구성되어 있어야 합니다.
-- 원격 접속 계정과 SSH 인증이 준비되어 있어야 합니다.
-- Vault 변수가 필요한 Role은 `--ask-vault-pass` 옵션으로 실행합니다.
-- Kubernetes API를 사용하는 Role은 사용 가능한 kubeconfig와 적절한 권한이 필요합니다.
-- Harbor 및 MinIO처럼 별도 데이터 디스크를 사용하는 Role은 필요한 마운트가 사전에 완료되어 있어야 합니다.
-- Check Mode 지원 범위는 Role마다 다르므로 실제 배포 전 각 Role의 구현을 확인합니다.
-
-## 실행 방법
-
-### 공통 설정
-
-```bash
-ansible-playbook -i inventory/hosts.ini playbooks/common.yml --ask-vault-pass
-```
-
-### DevOps 환경 구성
-
-Java, Maven, Node.js, Docker, Jenkins, kubectl, Helm, Argo CD 등 DevOps 환경을 구성합니다.
-
-```bash
-ansible-playbook -i inventory/hosts.ini playbooks/devops.yml --ask-vault-pass
-```
-
-### CI/CD 전체 구성
-
-Jenkins, Harbor, Argo CD 및 DR GitOps 연동을 포함한 CI/CD 구성을 순서대로 적용할 때 사용합니다.
-
-```bash
-ansible-playbook -i inventory/hosts.ini playbooks/cicd.yml --ask-vault-pass
-```
-
-### Harbor 구성
-
-```bash
-ansible-playbook -i inventory/hosts.ini playbooks/harbor.yml --ask-vault-pass
-ansible-playbook -i inventory/hosts.ini playbooks/harbor-bootstrap.yml --ask-vault-pass
-ansible-playbook -i inventory/hosts.ini playbooks/harbor-registry.yml --ask-vault-pass
-ansible-playbook -i inventory/hosts.ini playbooks/harbor-pull-secret.yml --ask-vault-pass
-```
-
-### DR Argo CD 연동
-
-```bash
-ansible-playbook -i inventory/hosts.ini playbooks/k3s-argocd-access.yml --ask-vault-pass
-ansible-playbook -i inventory/hosts.ini playbooks/argocd-dr.yml --ask-vault-pass
-ansible-playbook -i inventory/hosts.ini playbooks/argocd-dr-application.yml --ask-vault-pass
-ansible-playbook -i inventory/hosts.ini playbooks/dr-application-secrets.yml --ask-vault-pass
-```
-
-## Role 단독 실행 예시
-
-특정 Role만 검증하거나 재적용할 경우 임시 Playbook에서 필요한 Role만 지정할 수 있습니다.
-
-```yaml
 ---
-- name: Apply selected role
-  hosts: target_group
-  become: true
 
-  roles:
-    - role: common
-```
+## 전체 CI/CD 실행 흐름
 
-Role에 따라 `become`, kubeconfig, Vault 변수, 대상 Inventory Group 등의 요구사항이 다르므로 해당 Role의 `defaults/`, `vars/`, `templates/`, `tasks/`를 함께 확인합니다.
-
-## Check Mode 및 검증
-
-변경 예정 항목을 확인할 수 있는 Role은 다음과 같이 Check Mode로 실행할 수 있습니다.
-
-```bash
-ansible-playbook -i inventory/hosts.ini playbooks/devops.yml --check --ask-vault-pass
-```
-
-다만 일부 상태 조회와 검증 명령은 Check Mode에서도 실행될 수 있으며, 외부 서비스 API나 Kubernetes 상태에 따라 결과가 달라질 수 있습니다.
-
-일반 실행 후에는 다음 항목을 중심으로 검증합니다.
-
-```bash
-# Ansible 실행 결과
-ansible-playbook -i inventory/hosts.ini playbooks/common.yml --ask-vault-pass
-
-# Main Kubernetes
-kubectl get nodes
-kubectl get pods -A
-
-# Argo CD
-kubectl get pods -n argocd
-kubectl get applications -n argocd
-
-# Harbor
-curl -I http://harbor.nplan.local:80/v2/
-```
-
-최종적으로 Ansible `PLAY RECAP`의 `failed=0` 여부와 각 서비스의 실제 상태를 함께 확인합니다.
-
-## Role 디렉터리 기본 형태
-
-Role마다 필요한 파일만 사용하며 일반적인 구조는 다음과 같습니다.
+`cicd.yml`은 개별 Playbook을 다음 순서로 실행합니다.
 
 ```text
-role_name/
-├── defaults/
-│   └── main.yml
-├── handlers/
-│   └── main.yml
-├── tasks/
-│   └── main.yml
-├── templates/
-│   └── ...
-└── README.md
+1. harbor.yml
+   │
+   ▼
+2. harbor-bootstrap.yml
+   │
+   ▼
+3. devops.yml
+   │
+   ▼
+4. harbor-registry.yml
+   │
+   ▼
+5. harbor-pull-secret.yml
+   │
+   ▼
+6. dr-application-secrets.yml
+   │
+   ▼
+7. k3s-argocd-access.yml
+   │
+   ▼
+8. argocd-dr.yml
+   │
+   ▼
+9. argocd-dr-application.yml
 ```
 
-- `tasks/main.yml`: Role의 주요 작업
-- `defaults/main.yml`: 사용자가 덮어쓸 수 있는 기본 변수
-- `handlers/main.yml`: 서비스 재시작 등 변경 후 처리
-- `templates/`: Jinja2 기반 설정 파일 또는 Manifest
-- `README.md`: Role 목적, 변수, 실행 방법, 검증 범위 문서화
+역할 기준으로 보면 다음과 같습니다.
 
-모든 Role이 위 디렉터리를 전부 포함하는 것은 아닙니다.
+```text
+Harbor Registry
+      │
+      ▼
+Harbor Project / Robot Accounts
+      │
+      ▼
+Jenkins / Docker / kubectl / Helm / Argo CD
+      │
+      ▼
+Main K8s + DR k3s Harbor Registry 설정
+      │
+      ▼
+Image Pull Secret
+      │
+      ▼
+DR Application Secret
+      │
+      ▼
+DR k3s Argo CD 접근 준비
+      │
+      ▼
+Main Argo CD에 DR Cluster 등록
+      │
+      ▼
+DR Argo CD Application 생성
+```
 
-## 관련 코드
+---
 
-- [저장소 전체 README](../README.md)
-- [Playbooks](../playbooks/)
-- [Inventory](../inventory/)
-- [Argo CD Role](argocd/)
-- [Jenkins Role](jenkins/)
-- [Harbor Role](harbor/)
-- [DR k3s Role](k3s/)
-- [MinIO Role](minio/)
-- [애플리케이션 저장소](https://github.com/Infrastructure-hybrid09/onprem-k8s-application-devopsVM)
+## DevOps 구성
+
+`devops.yml`은 `devops_nodes` 그룹에 다음 Role을 순서대로 적용합니다.
+
+```text
+java
+  ↓
+maven
+  ↓
+nodejs
+  ↓
+docker
+  ↓
+kubectl_client
+  ↓
+jenkins
+  ↓
+helm
+  ↓
+argocd
+```
+
+실행 예시:
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/devops.yml \
+  -K \
+  --ask-vault-pass
+```
+
+---
+
+## 전체 CI/CD 구성 실행
+
+Harbor부터 Jenkins, Argo CD, Main Kubernetes / DR 연동까지 전체 CI/CD 구성을 적용할 경우 실행합니다.
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/cicd.yml \
+  -K \
+  --ask-vault-pass
+```
+
+`cicd.yml`은 여러 Playbook을 순서대로 Import하므로 중간 단계만 다시 실행해야 하는 경우에는 해당 개별 Playbook을 직접 실행할 수 있습니다.
+
+---
+
+## 공통 인프라 실행
+
+### 기본 시스템 설정
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/common.yml -K
+```
+
+### `/etc/hosts` 배포
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/hosts.yml -K
+```
+
+### DNS Client 구성
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/dns-client.yml -K
+```
+
+### NTP Client 구성
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/ntp-client.yml -K
+```
+
+---
+
+## Kubernetes / DR 실행
+
+### Kubernetes 노드 사전 설정
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/k8s-common.yml -K
+```
+
+### DR k3s 구성
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/k3s.yml \
+  -K \
+  --ask-vault-pass
+```
+
+### DR k3s를 Main Argo CD와 연결
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/k3s-argocd-access.yml -K --ask-vault-pass
+ansible-playbook -i inventory/hosts.ini playbooks/argocd-dr.yml -K --ask-vault-pass
+ansible-playbook -i inventory/hosts.ini playbooks/argocd-dr-application.yml --ask-vault-pass
+```
+
+### Main Argo CD 최초 Sync
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/argocd-sync.yml \
+  --ask-vault-pass
+```
+
+`argocd-sync.yml`은 현재 다음 값을 직접 사용합니다.
+
+```text
+Application : neuroplan-login-mvp
+Namespace   : argocd
+Kubeconfig  : /home/devops/.kube/config
+```
+
+Sync 요청 시 `prune: false`를 사용하며 Application이 `Synced:Healthy`가 될 때까지 대기합니다.
+
+---
+
+## Harbor 구성
+
+Harbor 관련 Playbook은 서버 설치, 초기 계정/Project 구성, Runtime Registry 설정, Kubernetes Secret 적용 단계로 분리되어 있습니다.
+
+```text
+harbor.yml
+    ↓
+harbor-bootstrap.yml
+    ↓
+harbor-registry.yml
+    ↓
+harbor-pull-secret.yml
+```
+
+개별 실행 예시:
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/harbor.yml -K --ask-vault-pass
+ansible-playbook -i inventory/hosts.ini playbooks/harbor-bootstrap.yml --ask-vault-pass
+ansible-playbook -i inventory/hosts.ini playbooks/harbor-registry.yml -K --ask-vault-pass
+ansible-playbook -i inventory/hosts.ini playbooks/harbor-pull-secret.yml -K --ask-vault-pass
+```
+
+---
+
+## Monitoring 실행
+
+### Main 환경 Node Exporter
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/monitoring.yml -K
+```
+
+`monitoring.yml`은 두 영역을 구성합니다.
+
+```text
+Non-Kubernetes VM
+→ node_exporter_vm
+
+Main Kubernetes
+→ node_exporter_k8s DaemonSet
+```
+
+### DR k3s Monitoring
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/k3s-monitoring.yml -K
+```
+
+DR k3s에는 Node Exporter와 kube-state-metrics를 배포하고 외부 Prometheus가 메트릭을 수집할 수 있도록 접근 구성을 적용합니다.
+
+### MinIO Monitoring
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/minio-monitoring.yml -K
+```
+
+---
+
+## Health Check 실행
+
+Health Check Playbook은 운영 상태 점검을 목적으로 사용합니다.
+
+### Load Balancer
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/lb_check.yml -K
+```
+
+주요 점검 항목:
+
+```text
+HAProxy / Keepalived
+API VIP 192.168.34.100:6443
+Service VIP 192.168.24.100:443
+CP1 / CP2 / CP3 API Backend
+Worker1 / Worker2 / Worker3 NGF Backend
+DR k3s 192.168.34.71:30443 Backup Backend
+```
+
+### Database
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/db_check.yml -K
+```
+
+주요 점검 항목:
+
+```text
+MariaDB Service
+TCP 3306
+Primary / Replica
+Replication IO / SQL
+MaxScale
+```
+
+### NFS
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/nfs_check.yml -K
+```
+
+주요 점검 항목:
+
+```text
+nfs-server Service
+TCP 2049
+/etc/exports
+/backup/etcd
+/backup/config
+/backup/mariadb
+```
+
+### Infra DNS / NTP
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/infra_check.yml -K
+```
+
+주요 점검 항목:
+
+```text
+BIND Service
+DNS TCP / UDP 53
+nplan.local Resolution
+Chrony Service
+NTP UDP 123
+NTP Synchronization
+```
+
+---
+
+## Check Mode
+
+변경 전 적용 계획을 확인하려면 지원되는 Playbook에 `--check` 옵션을 사용할 수 있습니다.
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/common.yml \
+  --check
+```
+
+Role 또는 직접 Task에서 `check_mode: false`를 사용하는 조회 작업은 Check Mode에서도 실행될 수 있습니다. 따라서 Check Mode 지원 범위는 연결된 Role 및 Playbook 구현에 따라 다릅니다.
+
+---
+
+## Vault
+
+민감정보가 필요한 Playbook은 Ansible Vault를 사용합니다.
+
+```bash
+--ask-vault-pass
+```
+
+대표적으로 Harbor Credential, Jenkins Credential, GitHub 인증정보, MinIO Credential, DR Secret 관련 값이 Vault 변수로 관리됩니다.
+
+실행 예시:
+
+```bash
+ansible-playbook \
+  -i inventory/hosts.ini \
+  playbooks/cicd.yml \
+  -K \
+  --ask-vault-pass
+```
+
+Vault 비밀번호와 민감정보는 일반 Playbook 파일에 평문으로 저장하지 않습니다.
+
+---
+
+## Playbook과 Role 관계
+
+```text
+playbooks/
+   │
+   ├── 실행 대상 Inventory Group 정의
+   ├── become / gather_facts 등 실행 조건 정의
+   ├── Role 실행 순서 정의
+   └── 일부 운영 Health Check Task 직접 수행
+          │
+          ▼
+roles/
+   │
+   ├── tasks/
+   ├── defaults/
+   ├── handlers/
+   └── templates/
+```
+
+Playbook은 **어디에 무엇을 실행할지**를 정의하고, Role은 **실제로 어떤 설정을 적용할지**를 정의합니다.
+
+---
+
+## 주요 실행 단위 정리
+
+```text
+Base Infrastructure
+├── common.yml
+├── hosts.yml
+├── dns-client.yml
+└── ntp-client.yml
+
+Kubernetes / DR
+├── k8s-common.yml
+├── k3s.yml
+├── k3s-argocd-access.yml
+└── dr-application-secrets.yml
+
+CI/CD
+├── devops.yml
+├── harbor.yml
+├── harbor-bootstrap.yml
+├── harbor-registry.yml
+├── harbor-pull-secret.yml
+├── argocd-dr.yml
+├── argocd-dr-application.yml
+├── argocd-sync.yml
+└── cicd.yml
+
+Monitoring
+├── monitoring.yml
+├── k3s-monitoring.yml
+└── minio-monitoring.yml
+
+Storage
+└── minio.yml
+
+Health Check
+├── lb_check.yml
+├── db_check.yml
+├── nfs_check.yml
+└── infra_check.yml
+```
+
+---
+
+## 관련 디렉터리
+
+- [`../roles/`](../roles/) - Playbook에서 호출하는 Ansible Role
+- [`../inventory/`](../inventory/) - 호스트 및 Group Variable 정의
+- [`../README.md`](../README.md) - 전체 NeuroPlan CI/CD 자동화 구성
+
+애플리케이션 CI 파이프라인은 별도 Application Repository의 `Jenkinsfile`에서 관리하며, Ansible Playbook은 Jenkins / Harbor / Argo CD 및 관련 인프라 구성을 담당합니다.
